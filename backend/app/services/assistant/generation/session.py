@@ -49,6 +49,9 @@ class Session(ABC):
         # chat lock state – holds the lock owner token if acquired, None otherwise
         self._chat_lock_token: Optional[str] = None
         self._chat_lock_watchdog: Optional[asyncio.Task] = None
+        # Set to True by the watchdog if lock renewal fails (lock was stolen or TTL expired).
+        # The generation loop must check this before any shared-state mutation.
+        self._chat_lock_lost: bool = False
 
         # tools
         self.tool_dict: Dict[str, Tool] = {}
@@ -461,7 +464,8 @@ class Session(ABC):
     async def _lock_watchdog_loop(self):
         """
         Background coroutine that periodically renews the chat lock TTL.
-        Exits silently when cancelled or when the lock token changes.
+        Sets self._chat_lock_lost = True and exits if renewal fails (lock expired/stolen),
+        so the foreground generation loop can detect the loss and abort before any writes.
         """
         try:
             while True:
@@ -471,8 +475,9 @@ class Session(ABC):
                     break
                 renewed = await self.chat.renew_lock(token, ttl=self.CHAT_LOCK_TTL)
                 if not renewed:
+                    self._chat_lock_lost = True
                     logger.warning(
-                        f"_lock_watchdog_loop: failed to renew chat lock "
+                        f"_lock_watchdog_loop: lost chat lock ownership "
                         f"(chat_id={self.chat.chat_id}), token may have expired or been stolen"
                     )
                     break
@@ -490,6 +495,18 @@ class Session(ABC):
             self._chat_lock_watchdog.cancel()
         self._chat_lock_watchdog = None
 
+    def _ensure_chat_lock(self):
+        """
+        Must be called before any operation that mutates shared chat state
+        (retrieval writes, tool call bookkeeping, memory updates, message creation).
+        Raises MessageGenerationException if the lock has been lost or never acquired.
+        """
+        if self.chat and (self._chat_lock_lost or self._chat_lock_token is None):
+            raise MessageGenerationException(
+                f"Chat {self.chat.chat_id} lock was lost during generation. "
+                f"Please try again later."
+            )
+
     async def _acquire_chat_lock(self) -> bool:
         """
         Atomically acquire the chat lock with an owner token and start the renewal watchdog.
@@ -504,6 +521,7 @@ class Session(ABC):
             raise MessageGenerationInvalidRequestException(
                 f"Chat {self.chat.chat_id} is locked. Please try again later."
             )
+        self._chat_lock_lost = False
         self._chat_lock_token = token
         self._start_lock_watchdog()
         return True
@@ -520,3 +538,4 @@ class Session(ABC):
         if self.chat and self._chat_lock_token is not None:
             await self.chat.unlock(self._chat_lock_token)
             self._chat_lock_token = None
+            self._chat_lock_lost = False
