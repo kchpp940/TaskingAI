@@ -39,6 +39,18 @@ class MessageGenerationLog(BaseModel):
     event_step: str = Field(..., description="The current step of the event.")
     timestamp: int = Field(..., ge=0, description="The timestamp when the log was created.", example=1700000000000)
     content: Dict[str, Any] = Field(..., description="The log content.")
+    duration_ms: int = Field(
+        None,
+        description="Duration of the event step in milliseconds. Only present on output/error steps.",
+    )
+    status: str = Field(
+        None,
+        description="Status of the event step: 'started', 'completed', or 'error'.",
+    )
+    error: str = Field(
+        None,
+        description="Error message if the event step failed.",
+    )
 
 
 class MessageContent(BaseModel):

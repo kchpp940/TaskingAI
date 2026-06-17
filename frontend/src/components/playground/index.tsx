@@ -8,6 +8,7 @@ import type { GetProp, UploadProps } from 'antd';
 import { toast } from 'react-toastify';
 import { getPluginList } from '../../axios/plugin.ts'
 import CreatePlugin from '../createPlugin/index.tsx';
+import TracePanel from '../tracePanel/index.tsx'
 import { setPlaygroundSelect, setPlaygroundAssistantId, } from '@/Redux/actions/playground.ts'
 import PlaygroundModel from '../playgroundModel/index.tsx';
 import CopyOutlined from '../../assets/img/copyIcon.svg?react'
@@ -134,6 +135,8 @@ function Playground() {
     const [loadMoreHasMore, setLoadMoreHasMore] = useState(false)
     const [debugArray1, setDebugArray1] = useState<any[]>([])
     const [debugArray2, setDebugArray2] = useState<any[]>([])
+    const [traceEvents, setTraceEvents] = useState<any[]>([])
+    const [tracePanelVisible, setTracePanelVisible] = useState(false)
     const [lottieAnimShow, setLottieAnimShow] = useState(false)
     const [contentDrawer, setContentDrawer] = useState(false)
     const [contentErrorDrawer, setContentErrorDrawer] = useState(false)
@@ -247,7 +250,11 @@ function Playground() {
         let updatedGroupedMessages = { ...groupedMessages };
         let str = ''
         const checkBoxValue1 = JSON.parse(localStorage.getItem('checkedValues') as string) || [1, 2]
-        if (item.object === 'MessageGenerationLog') {
+        if (item.object === 'TraceEvent') {
+            setTraceEvents(prev => [...prev, item])
+            setTracePanelVisible(true)
+            return updatedGroupedMessages;
+        } else if (item.object === 'MessageGenerationLog') {
             const newItem = {
                 ...item,
                 event: item.event.split('_').map((word: string) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
@@ -272,6 +279,17 @@ function Playground() {
             updatedGroupedMessages.content.text[updatedGroupedMessages.content.text.length - 1].event += str;
         } else if (item.object === 'Message' && checkBoxValue1.indexOf(1) === -1 && checkBoxValue1.indexOf(2) !== -1) {
             updatedGroupedMessages.content.text[updatedGroupedMessages.content.text.length - 1].event = item.content.text;
+            if (item.trace_events && Array.isArray(item.trace_events)) {
+                const newTraceEvents = item.trace_events.filter((e: any) => e.object === 'TraceEvent')
+                if (newTraceEvents.length > 0) {
+                    setTraceEvents(prev => {
+                        const existingIds = new Set(prev.map((e: any) => e.event_id))
+                        const filtered = newTraceEvents.filter((e: any) => !existingIds.has(e.event_id))
+                        return [...prev, ...filtered]
+                    })
+                    setTracePanelVisible(true)
+                }
+            }
         } else if (item.object === 'Error') {
             setErrorContent(JSON.stringify(item, null, 4))
             setGenerateButtonLoading(false)
@@ -613,6 +631,8 @@ function Playground() {
         if (sendButtonLoading || sendGenerateLoading || generateButtonLoading) {
             return toast.error('Cannot switch chat during message generation')
         }
+        setTraceEvents([])
+        setTracePanelVisible(false)
         setLoading(true)
         const params = {
         }
@@ -796,6 +816,7 @@ function Playground() {
         if (imgLoading) {
             return toast.error('The image is still uploading, please wait.')
         }
+        setTraceEvents([])
         const lastData = Array.isArray(contentTalk[contentTalk.length - 1]?.content.text)
         let lastMessage: boolean = false
         if (lastData) {
@@ -858,6 +879,10 @@ function Playground() {
             try {
                 const res = await generateMessage(id, chatId, params)
                 const { data } = res
+                if (data.trace_events && Array.isArray(data.trace_events)) {
+                    setTraceEvents(data.trace_events)
+                    setTracePanelVisible(true)
+                }
                 setContentTalk(prevValues => [...prevValues, {
                     role: 'Assistant',
                     content: {
@@ -1163,6 +1188,8 @@ function Playground() {
         if (sendButtonLoading || sendGenerateLoading || generateButtonLoading) {
             return toast.error('Cannot switch chat during message generation')
         }
+        setTraceEvents([])
+        setTracePanelVisible(false)
         setChatId(value)
         localStorage.setItem('chatId', value)
         setContentTalkLoading(true)
@@ -1536,6 +1563,7 @@ function Playground() {
                                 </div>
                             </Spin>
                         }
+                        <TracePanel events={traceEvents} visible={tracePanelVisible} onClear={() => { setTraceEvents([]); setTracePanelVisible(false) }} />
                         <div className={`${styles['content-bottom']} ${!chatId ? styles.none : ''}`}>
                             {imgList.length > 0 && <div className={styles['upload-list']}>
                                 {imgList.map((item, index) => (

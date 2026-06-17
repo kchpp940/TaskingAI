@@ -96,12 +96,3 @@ class Config:
 
 
 CONFIG = Config()
-
-from common.image_security import init_config
-
-init_config(
-    path_to_volume=CONFIG.PATH_TO_VOLUME,
-    raise_http_error=raise_http_error,
-    error_code_provider_error=ErrorCode.PROVIDER_ERROR,
-    error_code_request_validation_error=ErrorCode.REQUEST_VALIDATION_ERROR,
-)

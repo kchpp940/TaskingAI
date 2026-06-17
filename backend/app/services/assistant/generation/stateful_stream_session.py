@@ -39,7 +39,14 @@ class StatefulStreamSession(Session):
             )
             await self.chat.lock()
 
-            if self.debug and self.logs:
+            # Emit prep-phase TraceEvents via SSE when debug is enabled
+            if self.debug:
+                for trace_event in self.trace_events:
+                    yield f"data: {json.dumps(trace_event.to_dict())}\n\n"
+                    await asyncio.sleep(0.1)
+
+            # Also emit legacy MessageGenerationLog for backward compatibility
+            if self.debug:
                 for log_dict in self.logs:
                     yield f"data: {json.dumps(log_dict)}\n\n"
                     await asyncio.sleep(0.1)
@@ -58,6 +65,7 @@ class StatefulStreamSession(Session):
                             model=self.model,
                             messages=self.chat_completion_messages,
                             functions=self.chat_completion_functions,
+                            status="started",
                         )
                         if self.save_logs:
                             self.logs.append(chat_completion_input_log_dict)
@@ -82,6 +90,13 @@ class StatefulStreamSession(Session):
                                 pass
                             else:
                                 raise MessageGenerationException("Unknown data type")
+
+                        # Emit the chat_completion trace events after inference
+                        if self.debug:
+                            for trace_event in self.trace_events:
+                                # Only emit events that were just added during this inference
+                                if trace_event.event_id == chat_completion_event_id:
+                                    yield f"data: {json.dumps(trace_event.to_dict())}\n\n"
                     else:
                         logger.debug(f"completion start inference, stream = {self.stream}")
                         (
@@ -91,6 +106,11 @@ class StatefulStreamSession(Session):
                             _,
                         ) = await self.inference()
 
+                        if self.debug:
+                            for trace_event in self.trace_events:
+                                if trace_event.event_id == chat_completion_event_id:
+                                    yield f"data: {json.dumps(trace_event.to_dict())}\n\n"
+
                     if self.debug or self.save_logs:
                         chat_completion_output_log_dict = build_chat_completion_output_log_dict(
                             session_id=self.session_id,
@@ -98,6 +118,7 @@ class StatefulStreamSession(Session):
                             model=self.model,
                             message=chat_completion_assistant_message_dict,
                             usage=usage_dict,
+                            status="completed",
                         )
                         if self.save_logs:
                             self.logs.append(chat_completion_output_log_dict)
@@ -117,7 +138,7 @@ class StatefulStreamSession(Session):
                     try:
                         logger.debug(f"FUNCTION_CALLS: tool_call = {chat_completion_function_calls_dict_list}")
 
-                        # use and run tool. When debug is True, log the tool action call and result
+                        # use_tool returns legacy MessageGenerationLog dicts
                         tool_action_call_logs = await self.use_tool(
                             function_calls=chat_completion_function_calls_dict_list,
                             round_index=function_calls_round_index,
@@ -128,14 +149,13 @@ class StatefulStreamSession(Session):
                                 logger.debug(f"tool_action_call_log_dict = {tool_action_call_log_dict}")
                                 yield f"data: {json.dumps(tool_action_call_log_dict)}\n\n"
 
-                        # run tools
-
+                        # run_tools yields TraceEvent dicts (stable structure)
                         if self.debug:
-                            async for tool_action_result_log_dict in self.run_tools(
+                            async for trace_event_dict in self.run_tools(
                                 function_calls=chat_completion_function_calls_dict_list, log=True
                             ):
-                                logger.debug(f"tool_action_result_log_dict = {tool_action_result_log_dict}")
-                                yield f"data: {json.dumps(tool_action_result_log_dict)}\n\n"
+                                logger.debug(f"trace_event_dict = {trace_event_dict}")
+                                yield f"data: {json.dumps(trace_event_dict)}\n\n"
                         else:
                             async for _ in self.run_tools(chat_completion_function_calls_dict_list):
                                 pass
@@ -154,12 +174,18 @@ class StatefulStreamSession(Session):
             if not chat_completion_assistant_message_dict:
                 raise MessageGenerationException("Assistant message not generated.")
 
-            # raise MessageGenerationException("Manually raise error to test")
+            # Build and emit usage summary TraceEvent
+            usage_summary_trace = self.build_usage_summary_trace()
+            if self.debug:
+                yield f"data: {json.dumps(usage_summary_trace.to_dict())}\n\n"
+
             message = await self.create_assistant_message(
                 content_text=chat_completion_assistant_message_dict["content"],
                 logs=self.logs if self.save_logs else None,
             )
             message_dict = message.to_response_dict()
+            # Attach trace_events to the final message for normal consumers
+            message_dict["trace_events"] = self.get_trace_events_dicts()
             yield f"data: {json.dumps(message_dict)}\n\n"
             yield SSE_DONE_MSG
 

@@ -31,7 +31,6 @@ class StatefulNormalSession(Session):
             while True:
                 try:
                     chat_completion_event_id = generate_random_event_id()
-                    # append chat completion input log
                     if self.save_logs:
                         chat_completion_input_log_dict = build_chat_completion_input_log_dict(
                             session_id=self.session_id,
@@ -39,10 +38,10 @@ class StatefulNormalSession(Session):
                             model=self.model,
                             messages=self.chat_completion_messages,
                             functions=self.chat_completion_functions,
+                            status="started",
                         )
                         self.logs.append(chat_completion_input_log_dict)
 
-                    # inference
                     (
                         chat_completion_assistant_message_dict,
                         chat_completion_function_calls_dict_list,
@@ -50,7 +49,6 @@ class StatefulNormalSession(Session):
                         _,
                     ) = await self.inference()
 
-                    # append chat completion output log
                     if self.save_logs:
                         chat_completion_output_log_dict = build_chat_completion_output_log_dict(
                             session_id=self.session_id,
@@ -58,6 +56,7 @@ class StatefulNormalSession(Session):
                             model=self.model,
                             message=chat_completion_assistant_message_dict,
                             usage=usage_dict,
+                            status="completed",
                         )
                         self.logs.append(chat_completion_output_log_dict)
 
@@ -77,7 +76,7 @@ class StatefulNormalSession(Session):
                             round_index=function_calls_round_index,
                             log=self.save_logs,
                         )
-                        async for _ in self.run_tools(chat_completion_function_calls_dict_list):
+                        async for _ in self.run_tools(chat_completion_function_calls_dict_list, log=self.save_logs):
                             pass
                     except MessageGenerationException as e:
                         logger.error(f"MessageGenerationException occurred in using the tools: {e}")
@@ -89,11 +88,17 @@ class StatefulNormalSession(Session):
                 else:
                     break
 
+            # Build final usage summary trace
+            self.build_usage_summary_trace()
+
             message = await self.create_assistant_message(
                 content_text=chat_completion_assistant_message_dict["content"],
                 logs=self.logs if self.save_logs else None,
             )
-            return BaseDataResponse(data=message.to_response_dict())
+            response_dict = message.to_response_dict()
+            # Attach trace_events for API consumers
+            response_dict["trace_events"] = self.get_trace_events_dicts()
+            return BaseDataResponse(data=response_dict)
 
         except MessageGenerationInvalidRequestException as e:
             logger.error(f"StatefulNormalSession.generate: HTTPException error = {e}")

@@ -9,6 +9,7 @@ from .tool import *
 from .retrieval import *
 from .assistant import *
 from .file import *
+from .trace import *
 from tkhelper.models import *
 
 warnings.filterwarnings("default", module="pydantic")

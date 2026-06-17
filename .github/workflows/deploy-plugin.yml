@@ -84,11 +84,11 @@ jobs:
           AWS_REGION: ${{ secrets.AWS_REGION_TEST }}
 
       - name: Build Docker image
-        working-directory: ${{ github.workspace }}
+        working-directory: plugin
         env:
           ECR_REGISTRY: ${{ env.ECR_REGISTRY }}
         run: |
-          docker build -f plugin/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
           echo "Build success: ${ECR_REGISTRY}/$ECR_REPOSITORY:${IMAGE_TAG}"
 
       - name: Run Local Docker image
