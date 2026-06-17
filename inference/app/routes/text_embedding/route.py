@@ -25,6 +25,7 @@ async def embed_batch(
     provider_model_id: str,
     batch_input: List[str],
     batch_start_offset: int,
+    expected_embedding_size: int,
     credentials: ProviderCredentials,
     configs: TextEmbeddingModelConfiguration,
     input_type: Optional[TextEmbeddingInputType] = None,
@@ -45,8 +46,18 @@ async def embed_batch(
     if actual_count != expected_count:
         raise_http_error(
             ErrorCode.INTERNAL_SERVER_ERROR,
-            f"Provider returned {actual_count} embeddings for a batch of {expected_count} inputs (batch offset {batch_start_offset}).",
+            "Provider returned {} embeddings for a batch of {} inputs (batch offset {}).".format(
+                actual_count, expected_count, batch_start_offset
+            ),
         )
+    for idx, output in enumerate(res.data):
+        if len(output.embedding) != expected_embedding_size:
+            raise_http_error(
+                ErrorCode.INTERNAL_SERVER_ERROR,
+                "Embedding dimension mismatch at batch offset {} local index {}: expected {}, got {}.".format(
+                    batch_start_offset, idx, expected_embedding_size, len(output.embedding)
+                ),
+            )
     embeddings_array = np.array([output.embedding for output in res.data])
 
     try:
@@ -78,7 +89,6 @@ async def embed_text(
     custom_headers: Optional[Dict[str, str]] = None,
 ) -> TextEmbeddingResult:
     model = get_text_embedding_model(provider_id=provider_id)
-    batch_size = properties.max_batch_size if properties else 512
 
     if not model:
         raise_http_error(
@@ -86,10 +96,24 @@ async def embed_text(
             f"Provider {provider_id} is not " f"supported through the text_embedding API.",
         )
 
-    if batch_size <= 0:
+    if not properties:
+        raise_http_error(
+            ErrorCode.REQUEST_VALIDATION_ERROR,
+            "Model properties are required for text embedding.",
+        )
+
+    batch_size = properties.max_batch_size
+    if not batch_size or batch_size <= 0:
         raise_http_error(
             ErrorCode.REQUEST_VALIDATION_ERROR,
             f"Invalid max_batch_size: {batch_size}. Must be a positive integer.",
+        )
+
+    expected_embedding_size = properties.embedding_size
+    if not expected_embedding_size or expected_embedding_size <= 0:
+        raise_http_error(
+            ErrorCode.REQUEST_VALIDATION_ERROR,
+            f"Invalid embedding_size: {expected_embedding_size}. Must be a positive integer.",
         )
 
     if not input:
@@ -116,6 +140,7 @@ async def embed_text(
                 provider_model_id=provider_model_id,
                 batch_input=batches[batch_idx],
                 batch_start_offset=batch_offsets[batch_idx],
+                expected_embedding_size=expected_embedding_size,
                 credentials=credentials,
                 configs=configs,
                 input_type=input_type,
@@ -136,7 +161,6 @@ async def embed_text(
         )
 
     merged_results.sort(key=lambda o: o.index)
-    expected_embedding_size = properties.embedding_size
     for idx, output in enumerate(merged_results):
         if output.index != idx:
             raise_http_error(
