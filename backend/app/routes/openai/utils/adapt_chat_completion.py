@@ -21,7 +21,6 @@ from .utils import generate_random_chat_completion_id, generate_random_function_
 
 def adapt_openai_chat_completion_input(data: OpenaiChatCompletionRequest) -> ChatCompletionRequest:
     model_id = data.model
-    taskingai_tool_id = generate_random_function_call_id()
 
     def convert_message(message: Dict):
         role = message.get("role")
@@ -45,8 +44,10 @@ def adapt_openai_chat_completion_input(data: OpenaiChatCompletionRequest) -> Cha
                     [
                         ChatCompletionFunctionCall(
                             name=tool_call["function"]["name"],
-                            arguments=json.loads(tool_call["function"]["arguments"]),
-                            id=taskingai_tool_id,
+                            arguments=json.loads(tool_call["function"]["arguments"])
+                            if isinstance(tool_call["function"]["arguments"], str)
+                            else tool_call["function"]["arguments"],
+                            id=tool_call.get("id") or generate_random_function_call_id(),
                         )
                         for tool_call in tool_calls
                     ]
@@ -56,16 +57,30 @@ def adapt_openai_chat_completion_input(data: OpenaiChatCompletionRequest) -> Cha
                     raise_request_validation_error("function_call must be a dictionary.")
                 function_calls.append(
                     ChatCompletionFunctionCall(
-                        name=func_call["name"], arguments=json.loads(func_call["arguments"]), id=taskingai_tool_id
+                        name=func_call["name"],
+                        arguments=json.loads(func_call["arguments"])
+                        if isinstance(func_call["arguments"], str)
+                        else func_call["arguments"],
+                        id=func_call.get("id") or generate_random_function_call_id(),
                     )
                 )
             function_calls = function_calls if function_calls else None
             return ChatCompletionAssistantMessage(
                 content=content, role=ChatCompletionRole.ASSISTANT, function_calls=function_calls
             )
-        elif role == "function" or role == "tool":
+        elif role == "tool":
+            tool_call_id = message.get("tool_call_id") or message.get("id")
+            if not tool_call_id:
+                raise_request_validation_error("tool_call_id is required for tool messages.")
             return ChatCompletionFunctionMessage(
-                content=content, role=ChatCompletionRole.FUNCTION, id=taskingai_tool_id
+                content=content, role=ChatCompletionRole.FUNCTION, id=tool_call_id
+            )
+        elif role == "function":
+            func_id = message.get("id") or message.get("name")
+            if not func_id:
+                raise_request_validation_error("id or name is required for function messages.")
+            return ChatCompletionFunctionMessage(
+                content=content, role=ChatCompletionRole.FUNCTION, id=func_id
             )
         else:
             raise ValueError(f"Unsupported message type: {type(message)}")
@@ -143,7 +158,7 @@ def adapt_openai_chat_completion_response(
 
     openai_message = OpenaiChatCompletionAssistantMessageParam(
         role="assistant",
-        content=chat_completion.message.content if not function_call else None,
+        content=chat_completion.message.content if not (function_call or tool_calls) else None,
         tool_calls=tool_calls,
         function_call=function_call,
         name=None,
@@ -215,23 +230,23 @@ def adapt_openai_chat_completion_stream(
 
     if data.tools:
         tool_calls = []
-        for call in function_calls:
+        for idx, call in enumerate(function_calls):
             tool_call = {
-                "index": 0,
+                "index": idx,
                 "id": call["id"],
                 "function": {"name": call["name"], "arguments": json.dumps(call["arguments"])},
                 "type": "function",
             }
             tool_calls.append(tool_call)
 
-        delta = {"content": content, "role": role, "tool_calls": tool_calls}
+        delta = {"content": None, "role": role, "tool_calls": tool_calls}
         finish_reason = "tool_calls"
     else:
         function_call = {
             "name": function_calls[0]["name"],
             "arguments": json.dumps(function_calls[0]["arguments"]),
         }
-        delta = {"content": content, "role": role, "function_call": function_call}
+        delta = {"content": None, "role": role, "function_call": function_call}
         finish_reason = "function_call"
 
     choice = {"delta": delta, "finish_reason": finish_reason, "index": 0, "logprobs": None}
@@ -242,7 +257,7 @@ def adapt_openai_chat_completion_stream(
         "created": created_timestamp_seconds,
         "model": data.model,
         "object": "chat.completion.chunk",
-        "system_fingerprint": None,  # Optional, add if necessary
+        "system_fingerprint": None,
     }
 
     return openai_chat_completion_chunk
