@@ -1,13 +1,7 @@
 import os
-import sys
-from pathlib import Path
 from dotenv import load_dotenv
 import logging
 from app.error.error_code import ErrorCode, raise_http_error
-
-_project_root = Path(__file__).resolve().parent.parent
-if str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
 
 logger = logging.Logger(__name__)
 load_dotenv()

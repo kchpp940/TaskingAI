@@ -44,7 +44,7 @@ jobs:
           python-version: 3.*
 
       - name: Install Python dependencies
-        run: pip install -r requirements.txt
+        run: pip install -e ../common && pip install -r requirements.txt
 
       - name: Read Version
         id: version
