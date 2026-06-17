@@ -41,7 +41,7 @@ MESSAGE_RESPONSE = 5
 
 
 class Session(ABC):
-    def __init__(self, assistant: Assistant, chat: Optional[Chat], save_logs: bool):
+    def __init__(self, assistant: Assistant, chat: Optional[Chat], save_logs: bool, debug: bool = False):
         # assistant
         self.assistant: Assistant = assistant
         self.chat: Optional[Chat] = chat
@@ -83,11 +83,15 @@ class Session(ABC):
         self.logs = []
         self.save_logs = save_logs
 
-        # stable trace events (frontend consumption, normal response + SSE)
+        # debug flag - controls TraceEvent collection and output
+        self.debug = debug
+
+        # stable trace events (only collected when debug=True)
         self.trace_events: List[TraceEvent] = []
 
     def _add_trace_event(self, event: TraceEvent):
-        self.trace_events.append(event)
+        if self.debug:
+            self.trace_events.append(event)
 
     async def create_assistant_message(self, content_text: str, logs: List[Dict] = None):
         if not self.chat:
@@ -652,8 +656,10 @@ class Session(ABC):
         results = [function_call for function_call in function_calls if function_call["name"] in self.function_names]
         return results if results else None
 
-    def build_usage_summary_trace(self) -> TraceEvent:
-        """Build and store the final usage summary TraceEvent."""
+    def build_usage_summary_trace(self) -> Optional[TraceEvent]:
+        """Build and store the final usage summary TraceEvent. Only when debug=True."""
+        if not self.debug:
+            return None
         trace = build_trace_usage_summary(
             trace_id=self.trace_id,
             total_input_tokens=self.total_input_tokens,
@@ -662,6 +668,8 @@ class Session(ABC):
         self._add_trace_event(trace)
         return trace
 
-    def get_trace_events_dicts(self) -> List[Dict]:
-        """Return all trace events as dicts for serialization in API responses."""
+    def get_trace_events_dicts(self) -> Optional[List[Dict]]:
+        """Return trace events as dicts only when debug=True, otherwise None."""
+        if not self.debug:
+            return None
         return [e.to_dict() for e in self.trace_events]

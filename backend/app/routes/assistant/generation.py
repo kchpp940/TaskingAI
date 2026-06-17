@@ -54,5 +54,6 @@ async def api_chat_generate(
             assistant=assistant,
             chat=chat,
             save_logs=False,  # todo: save_logs
+            debug=payload.debug,
         )
         return await session.generate(system_prompt_variables)

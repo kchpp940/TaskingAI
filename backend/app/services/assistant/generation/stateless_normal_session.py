@@ -15,8 +15,8 @@ logger = logging.getLogger(__name__)
 
 
 class StatelessNormalSession(Session):
-    def __init__(self, assistant: Assistant, save_logs: bool):
-        super().__init__(assistant, None, save_logs)
+    def __init__(self, assistant: Assistant, save_logs: bool, debug: bool = False):
+        super().__init__(assistant, None, save_logs, debug=debug)
 
     async def generate(
         self,
@@ -108,8 +108,10 @@ class StatelessNormalSession(Session):
             # Build usage summary trace
             self.build_usage_summary_trace()
 
-            # Attach trace_events to response
-            response_dict["trace_events"] = self.get_trace_events_dicts()
+            # Attach trace_events to response only when debug=True
+            trace_dicts = self.get_trace_events_dicts()
+            if trace_dicts is not None:
+                response_dict["trace_events"] = trace_dicts
 
             return ChatCompletionResponse(data=response_dict)
 

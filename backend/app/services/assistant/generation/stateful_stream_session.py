@@ -26,9 +26,8 @@ def error_message(code, message: str):
 
 class StatefulStreamSession(Session):
     def __init__(self, assistant: Assistant, chat: Chat, stream: bool, debug: bool, save_logs: bool):
-        super().__init__(assistant, chat, save_logs)
+        super().__init__(assistant, chat, save_logs, debug=debug)
         self.stream = stream
-        self.debug = debug
 
     async def stream_generate(self, system_prompt_variables: Dict):
         try:
@@ -176,7 +175,7 @@ class StatefulStreamSession(Session):
 
             # Build and emit usage summary TraceEvent
             usage_summary_trace = self.build_usage_summary_trace()
-            if self.debug:
+            if self.debug and usage_summary_trace:
                 yield f"data: {json.dumps(usage_summary_trace.to_dict())}\n\n"
 
             message = await self.create_assistant_message(
@@ -184,8 +183,9 @@ class StatefulStreamSession(Session):
                 logs=self.logs if self.save_logs else None,
             )
             message_dict = message.to_response_dict()
-            # Attach trace_events to the final message for normal consumers
-            message_dict["trace_events"] = self.get_trace_events_dicts()
+            trace_dicts = self.get_trace_events_dicts()
+            if trace_dicts is not None:
+                message_dict["trace_events"] = trace_dicts
             yield f"data: {json.dumps(message_dict)}\n\n"
             yield SSE_DONE_MSG
 

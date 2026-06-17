@@ -26,8 +26,8 @@ def error_message(code, message: str):
 
 
 class StatelessStreamSession(Session):
-    def __init__(self, assistant: Assistant, save_logs: bool, yield_dict: bool = False):
-        super().__init__(assistant, None, save_logs)
+    def __init__(self, assistant: Assistant, save_logs: bool, yield_dict: bool = False, debug: bool = False):
+        super().__init__(assistant, None, save_logs, debug=debug)
         self.stream = True
         self.yield_dict = yield_dict
 
@@ -54,8 +54,8 @@ class StatelessStreamSession(Session):
                 chat_completion_input_functions=functions,
             )
 
-            # Emit prep-phase TraceEvents when save_logs is enabled
-            if self.save_logs:
+            # Emit prep-phase TraceEvents when debug is enabled
+            if self.debug:
                 for trace_event in self.trace_events:
                     if self.yield_dict:
                         yield trace_event.to_dict()
@@ -103,7 +103,7 @@ class StatelessStreamSession(Session):
                                 raise MessageGenerationException("Unknown data type")
 
                         # Emit chat_completion trace events
-                        if self.save_logs:
+                        if self.debug:
                             for trace_event in self.trace_events:
                                 if trace_event.event_id == chat_completion_event_id:
                                     if self.yield_dict:
@@ -119,7 +119,7 @@ class StatelessStreamSession(Session):
                             response_dict,
                         ) = await self.inference()
 
-                        if self.save_logs:
+                        if self.debug:
                             for trace_event in self.trace_events:
                                 if trace_event.event_id == chat_completion_event_id:
                                     if self.yield_dict:
@@ -167,10 +167,11 @@ class StatelessStreamSession(Session):
                         async for trace_event_dict in self.run_tools(
                             chat_completion_function_calls_dict_list, log=self.save_logs
                         ):
-                            if self.yield_dict:
-                                yield trace_event_dict
-                            else:
-                                yield f"data: {json.dumps(trace_event_dict)}\n\n"
+                            if self.debug:
+                                if self.yield_dict:
+                                    yield trace_event_dict
+                                else:
+                                    yield f"data: {json.dumps(trace_event_dict)}\n\n"
 
                     except MessageGenerationException as e:
                         logger.error(f"MessageGenerationException occurred in using the tools: {e}")
@@ -191,14 +192,17 @@ class StatelessStreamSession(Session):
 
             # Build and emit usage summary
             usage_summary_trace = self.build_usage_summary_trace()
-            if self.yield_dict:
-                yield usage_summary_trace.to_dict()
-            else:
-                yield f"data: {json.dumps(usage_summary_trace.to_dict())}\n\n"
+            if self.debug and usage_summary_trace:
+                if self.yield_dict:
+                    yield usage_summary_trace.to_dict()
+                else:
+                    yield f"data: {json.dumps(usage_summary_trace.to_dict())}\n\n"
 
             response_dict["usage"]["input_tokens"] = self.total_input_tokens
             response_dict["usage"]["output_tokens"] = self.total_output_tokens
-            response_dict["trace_events"] = self.get_trace_events_dicts()
+            trace_dicts = self.get_trace_events_dicts()
+            if trace_dicts is not None:
+                response_dict["trace_events"] = trace_dicts
             if self.yield_dict:
                 yield response_dict
             else:

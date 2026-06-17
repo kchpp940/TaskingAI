@@ -28,6 +28,12 @@ class ChatCompletionRequest(BaseModel):
         "If set to True, the response will be streamed using Server-Sent Events (SSE).",
         examples=[False],
     )
+    debug: bool = Field(
+        False,
+        description="Whether to include trace events for debugging the generation pipeline. "
+        "If set to True, trace events will be included in the response or streamed via SSE.",
+        examples=[False],
+    )
     messages: List[
         Union[
             ChatCompletionFunctionMessage,

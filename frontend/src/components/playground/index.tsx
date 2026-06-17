@@ -137,6 +137,7 @@ function Playground() {
     const [debugArray2, setDebugArray2] = useState<any[]>([])
     const [traceEvents, setTraceEvents] = useState<any[]>([])
     const [tracePanelVisible, setTracePanelVisible] = useState(false)
+    const [debugEnabled, setDebugEnabled] = useState(false)
     const [lottieAnimShow, setLottieAnimShow] = useState(false)
     const [contentDrawer, setContentDrawer] = useState(false)
     const [contentErrorDrawer, setContentErrorDrawer] = useState(false)
@@ -251,8 +252,10 @@ function Playground() {
         let str = ''
         const checkBoxValue1 = JSON.parse(localStorage.getItem('checkedValues') as string) || [1, 2]
         if (item.object === 'TraceEvent') {
-            setTraceEvents(prev => [...prev, item])
-            setTracePanelVisible(true)
+            if (debugEnabled) {
+                setTraceEvents(prev => [...prev, item])
+                setTracePanelVisible(true)
+            }
             return updatedGroupedMessages;
         } else if (item.object === 'MessageGenerationLog') {
             const newItem = {
@@ -279,7 +282,7 @@ function Playground() {
             updatedGroupedMessages.content.text[updatedGroupedMessages.content.text.length - 1].event += str;
         } else if (item.object === 'Message' && checkBoxValue1.indexOf(1) === -1 && checkBoxValue1.indexOf(2) !== -1) {
             updatedGroupedMessages.content.text[updatedGroupedMessages.content.text.length - 1].event = item.content.text;
-            if (item.trace_events && Array.isArray(item.trace_events)) {
+            if (debugEnabled && item.trace_events && Array.isArray(item.trace_events)) {
                 const newTraceEvents = item.trace_events.filter((e: any) => e.object === 'TraceEvent')
                 if (newTraceEvents.length > 0) {
                     setTraceEvents(prev => {
@@ -850,6 +853,7 @@ function Playground() {
         const checkBoxValue1 = JSON.parse(localStorage.getItem('checkedValues') as string) || checkBoxValue
         checkBoxValue1.indexOf(1) !== -1 ? stream = true : stream = false
         checkBoxValue1.indexOf(2) !== -1 ? debug = true : debug = false
+        setDebugEnabled(debug)
 
         const params = {
             system_prompt_variables: systemPromptVariables ? JSON.parse(systemPromptVariables) : {},
@@ -879,9 +883,12 @@ function Playground() {
             try {
                 const res = await generateMessage(id, chatId, params)
                 const { data } = res
-                if (data.trace_events && Array.isArray(data.trace_events)) {
-                    setTraceEvents(data.trace_events)
-                    setTracePanelVisible(true)
+                if (debugEnabled && data.trace_events && Array.isArray(data.trace_events)) {
+                    const traceEvents = data.trace_events.filter((e: any) => e.object === 'TraceEvent')
+                    if (traceEvents.length > 0) {
+                        setTraceEvents(traceEvents)
+                        setTracePanelVisible(true)
+                    }
                 }
                 setContentTalk(prevValues => [...prevValues, {
                     role: 'Assistant',
@@ -1563,7 +1570,7 @@ function Playground() {
                                 </div>
                             </Spin>
                         }
-                        <TracePanel events={traceEvents} visible={tracePanelVisible} onClear={() => { setTraceEvents([]); setTracePanelVisible(false) }} />
+                        <TracePanel events={traceEvents} visible={debugEnabled && tracePanelVisible} onClear={() => { setTraceEvents([]); setTracePanelVisible(false) }} />
                         <div className={`${styles['content-bottom']} ${!chatId ? styles.none : ''}`}>
                             {imgList.length > 0 && <div className={styles['upload-list']}>
                                 {imgList.map((item, index) => (
