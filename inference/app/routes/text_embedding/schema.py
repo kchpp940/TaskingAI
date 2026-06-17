@@ -19,12 +19,6 @@ class TextEmbeddingFallback(BaseModel):
         description="The provider's model ID.",
     )
 
-    properties: Optional[Dict] = Field(
-        None,
-        description="The custom properties for the fallback text embedding model.",
-        examples=[None],
-    )
-
 
 class TextEmbeddingRequest(BaseModel):
     model_schema_id: str = Field(

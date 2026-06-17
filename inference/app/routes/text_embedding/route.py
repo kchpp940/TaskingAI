@@ -24,13 +24,13 @@ async def embed_batch(
     model: BaseTextEmbeddingModel,
     provider_model_id: str,
     batch_input: List[str],
+    batch_start_offset: int,
     credentials: ProviderCredentials,
     configs: TextEmbeddingModelConfiguration,
     input_type: Optional[TextEmbeddingInputType] = None,
     proxy: Optional[str] = None,
     custom_headers: Optional[Dict[str, str]] = None,
 ):
-    # Embed a single batch of texts
     res = await model.embed_text(
         provider_model_id=provider_model_id,
         input=batch_input,
@@ -40,7 +40,13 @@ async def embed_batch(
         proxy=proxy,
         custom_headers=custom_headers,
     )
-    # ensure that the embeddings are unit vectors
+    expected_count = len(batch_input)
+    actual_count = len(res.data)
+    if actual_count != expected_count:
+        raise_http_error(
+            ErrorCode.INTERNAL_SERVER_ERROR,
+            f"Provider returned {actual_count} embeddings for a batch of {expected_count} inputs (batch offset {batch_start_offset}).",
+        )
     embeddings_array = np.array([output.embedding for output in res.data])
 
     try:
@@ -55,6 +61,7 @@ async def embed_batch(
 
     for i, output in enumerate(res.data):
         output.embedding = embeddings_array[i].tolist()
+        output.index = batch_start_offset + i
 
     return res
 
@@ -90,18 +97,24 @@ async def embed_text(
             data=[], usage=TextEmbeddingUsage(input_tokens=0)
         )
 
-    batches = [input[i : i + batch_size] for i in range(0, len(input), batch_size)]
+    batches = []
+    batch_offsets = []
+    for i in range(0, len(input), batch_size):
+        batches.append(input[i : i + batch_size])
+        batch_offsets.append(i)
 
     merged_results = []
 
     max_parallel_tasks = 20
-    for i in range(0, len(batches), max_parallel_tasks):
+    for chunk_start in range(0, len(batches), max_parallel_tasks):
+        chunk_end = min(chunk_start + max_parallel_tasks, len(batches))
         tasks = []
-        for batch in batches[i : i + max_parallel_tasks]:
+        for batch_idx in range(chunk_start, chunk_end):
             task = embed_batch(
                 model=model,
                 provider_model_id=provider_model_id,
-                batch_input=batch,
+                batch_input=batches[batch_idx],
+                batch_start_offset=batch_offsets[batch_idx],
                 credentials=credentials,
                 configs=configs,
                 input_type=input_type,
@@ -112,10 +125,7 @@ async def embed_text(
 
         batch_results = await asyncio.gather(*tasks)
 
-        for batch_idx, batch_result in enumerate(batch_results):
-            global_start_idx = (i + batch_idx) * batch_size
-            for local_idx, output in enumerate(batch_result.data):
-                output.index = global_start_idx + local_idx
+        for batch_result in batch_results:
             merged_results.extend(batch_result.data)
 
     if len(merged_results) != len(input):
@@ -124,8 +134,14 @@ async def embed_text(
             f"Embedding result count mismatch: expected {len(input)}, got {len(merged_results)}.",
         )
 
+    merged_results.sort(key=lambda o: o.index)
     expected_embedding_size = properties.embedding_size
     for idx, output in enumerate(merged_results):
+        if output.index != idx:
+            raise_http_error(
+                ErrorCode.INTERNAL_SERVER_ERROR,
+                f"Embedding index mismatch: expected index {idx}, got {output.index}.",
+            )
         if len(output.embedding) != expected_embedding_size:
             raise_http_error(
                 ErrorCode.INTERNAL_SERVER_ERROR,
@@ -167,7 +183,7 @@ async def api_text_embedding(
                 validate_model_info(
                     model_schema_id=fallback.model_schema_id,
                     provider_model_id=fallback.provider_model_id,
-                    properties_dict=fallback.properties,
+                    properties_dict=None,
                     model_type=ModelType.TEXT_EMBEDDING,
                 )
             )
