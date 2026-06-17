@@ -32,13 +32,12 @@ class StatefulStreamSession(Session):
 
     async def stream_generate(self, system_prompt_variables: Dict):
         try:
-            await self._acquire_chat_lock()
-
             await self.prepare(
                 stream=self.stream,
                 system_prompt_variables=system_prompt_variables,
                 retrieval_log=self.debug or self.save_logs,
             )
+            await self.chat.lock()
 
             if self.debug and self.logs:
                 for log_dict in self.logs:
@@ -47,7 +46,6 @@ class StatefulStreamSession(Session):
 
             function_calls_round_index = 0
             while True:
-                self._ensure_chat_lock()
                 chat_completion_function_calls_dict_list = None
                 chat_completion_assistant_message_dict = None
 
@@ -115,7 +113,6 @@ class StatefulStreamSession(Session):
                     raise MessageGenerationException(f"Error occurred in chat completion inference")
 
                 if chat_completion_function_calls_dict_list:
-                    self._ensure_chat_lock()
                     function_calls_round_index += 1
                     try:
                         logger.debug(f"FUNCTION_CALLS: tool_call = {chat_completion_function_calls_dict_list}")
@@ -157,7 +154,6 @@ class StatefulStreamSession(Session):
             if not chat_completion_assistant_message_dict:
                 raise MessageGenerationException("Assistant message not generated.")
 
-            self._ensure_chat_lock()
             # raise MessageGenerationException("Manually raise error to test")
             message = await self.create_assistant_message(
                 content_text=chat_completion_assistant_message_dict["content"],
@@ -187,4 +183,4 @@ class StatefulStreamSession(Session):
             yield SSE_DONE_MSG
 
         finally:
-            await self._release_chat_lock()
+            await self.chat.unlock()

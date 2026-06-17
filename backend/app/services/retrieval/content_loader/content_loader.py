@@ -2,6 +2,7 @@ import json
 import logging
 import os
 from typing import Optional
+import aiofiles.os
 from fastapi import HTTPException
 from tkhelper.error import raise_http_error, ErrorCode, raise_request_validation_error
 
@@ -16,7 +17,7 @@ from .txt import TxtContentLoader
 from .html import HtmlFileContentLoader
 from .markdown import MarkdownFileContentLoader
 
-__all__ = ["load_db_content", "load_content_to_split"]
+__all__ = ["load_db_content", "load_content_to_split", "delete_record_file_remote"]
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,12 @@ __markdown_reader = MarkdownFileContentLoader()
 __web_reader = WebContentLoader()
 
 _bucket_name = CONFIG.S3_BUCKET_NAME
+_record_file_dir = CONFIG.PATH_TO_VOLUME + "/tmp/record_file"
+
+
+async def _ensure_record_file_dir() -> None:
+    if not await aiofiles.os.path.exists(_record_file_dir):
+        await aiofiles.os.makedirs(_record_file_dir, exist_ok=True)
 
 
 async def download_record_file(project_id: str, file_id: str) -> str:
@@ -37,13 +44,13 @@ async def download_record_file(project_id: str, file_id: str) -> str:
     :param file_id: the file id
     :return: the local file path
     """
+    await _ensure_record_file_dir()
+
     file_url = boto3_client.get_file_url(_bucket_name, UploadFilePurpose.RECORD_FILE.value, file_id, project_id)
     file_name = file_url.split("/")[-1]
 
-    file_dir = CONFIG.PATH_TO_VOLUME + "/tmp/record_file"
-    local_file_path = file_dir + f"/{file_name}"
+    local_file_path = _record_file_dir + f"/{file_name}"
 
-    # download file
     await boto3_client.download_file_to_path(
         bucket_name=_bucket_name,
         purpose=UploadFilePurpose.RECORD_FILE.value,
@@ -59,12 +66,34 @@ async def download_record_file(project_id: str, file_id: str) -> str:
 
 def remove_record_file(local_file_path):
     """
-    Remove record file
+    Remove local record file
     :param local_file_path: the local file path
     """
     if os.path.exists(local_file_path):
         os.remove(local_file_path)
-        logger.debug(f"Removed record file: {local_file_path}")
+        logger.debug(f"Removed local record file: {local_file_path}")
+
+
+async def delete_record_file_remote(project_id: str, file_id: str) -> None:
+    """
+    Delete record file from remote storage (MinIO/S3).
+    Should only be called after the record has been successfully created.
+    :param project_id: the project id
+    :param file_id: the file id
+    """
+    try:
+        await boto3_client.delete_file(
+            _bucket_name, UploadFilePurpose.RECORD_FILE.value, file_id, project_id
+        )
+        logger.debug(f"Deleted remote record file: {file_id}")
+    except HTTPException as e:
+        if e.status_code == 404:
+            logger.warning(f"Remote record file not found when deleting: {file_id}")
+        else:
+            raise
+    except Exception as e:
+        logger.error(f"Failed to delete remote record file {file_id}: {e}")
+        raise
 
 
 async def load_db_content(
@@ -80,14 +109,41 @@ async def load_db_content(
         return processed_content
 
     elif record_type == RecordType.FILE:
-        metadata = await boto3_client.get_file_metadata(
-            _bucket_name, UploadFilePurpose.RECORD_FILE.value, file_id, CONFIG.PROJECT_ID
-        )
+        if not file_id:
+            raise_request_validation_error("file_id is required for file record")
+
+        try:
+            ext, _ = file_id.split("_")
+        except ValueError:
+            raise_request_validation_error(f"Invalid file_id format: {file_id}")
+
+        supported_extensions = {"pdf", "docx", "txt", "html", "md"}
+        if ext not in supported_extensions:
+            raise_request_validation_error(f"Unsupported file type: {ext}")
+
+        try:
+            metadata = await boto3_client.get_file_metadata(
+                _bucket_name, UploadFilePurpose.RECORD_FILE.value, file_id, CONFIG.PROJECT_ID
+            )
+        except HTTPException as e:
+            if e.status_code == 404:
+                raise_request_validation_error(f"File not found: {file_id}")
+            raise
+
+        original_file_name = metadata.get("original_file_name", "")
+        if not original_file_name:
+            raise_request_validation_error(f"Missing original file name for file: {file_id}")
+
+        try:
+            file_size = int(metadata.get("file_size", 0))
+        except (ValueError, TypeError):
+            raise_request_validation_error(f"Invalid file size metadata for file: {file_id}")
+
         db_content = json.dumps(
             {
                 "file_id": file_id,
-                "file_name": metadata.get("original_file_name", ""),
-                "file_size": int(metadata.get("file_size", 0)),
+                "file_name": original_file_name,
+                "file_size": file_size,
             }
         )
         return db_content
@@ -125,11 +181,19 @@ async def load_content_to_split(
         if not file_id:
             raise_request_validation_error("file_id is required for file record")
 
+        try:
+            ext, _ = file_id.split("_")
+        except ValueError:
+            raise_request_validation_error(f"Invalid file_id format: {file_id}")
+
+        supported_extensions = {"pdf", "docx", "txt", "html", "md"}
+        if ext not in supported_extensions:
+            raise_request_validation_error(f"Unsupported file type: {ext}")
+
         local_file_path = None
 
         try:
             local_file_path = await download_record_file(CONFIG.PROJECT_ID, file_id)
-            ext = file_id.split("_")[0]
 
             processed_content = None
             if ext == "pdf":
@@ -142,11 +206,9 @@ async def load_content_to_split(
                 processed_content = await __html_reader.read_content(local_file_path)
             elif ext == "md":
                 processed_content = await __markdown_reader.read_content(local_file_path)
-            else:
-                raise_request_validation_error(f"Unsupported file type: {ext}")
 
             if processed_content is None:
-                raise_request_validation_error(f"Failed to load content from file")
+                raise_request_validation_error(f"Failed to extract content from {ext.upper()} file")
 
             processed_content = processed_content.strip()
             if not processed_content:
@@ -159,14 +221,10 @@ async def load_content_to_split(
 
         except Exception as e:
             logger.error(f"Failed to load content from file {file_id}: {e}")
-            raise_http_error(ErrorCode.INVALID_REQUEST, f"Failed to load content from file.")
+            raise_http_error(ErrorCode.INVALID_REQUEST, f"Failed to load content from file: {e}")
 
         finally:
             if local_file_path:
-                # delete from minio
-                await boto3_client.delete_file(
-                    _bucket_name, UploadFilePurpose.RECORD_FILE.value, file_id, CONFIG.PROJECT_ID
-                )
                 remove_record_file(local_file_path)
 
     elif record_type == RecordType.WEB:

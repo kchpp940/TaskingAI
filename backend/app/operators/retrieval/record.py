@@ -1,3 +1,4 @@
+import logging
 from typing import Dict, Optional
 
 from tkhelper.models.operator.postgres_operator import PostgresModelOperator, ModelEntity
@@ -6,10 +7,13 @@ from tkhelper.error import raise_http_error, ErrorCode, raise_request_validation
 from app.database import postgres_pool
 from app.models import Record, RecordType, TextSplitter, Collection
 from app.database_ops.retrieval import record as db_record
-from app.services.retrieval.content_loader import load_db_content, load_content_to_split
+from app.services.retrieval.content_loader import load_db_content, load_content_to_split, delete_record_file_remote
+from app.config import CONFIG
 
 from .collection import collection_ops
 from ..model import model_ops
+
+logger = logging.getLogger(__name__)
 
 __all__ = ["record_ops"]
 
@@ -107,6 +111,15 @@ class RecordModelOperator(PostgresModelOperator):
             metadata=metadata,
         )
 
+        # only delete the remote file after the record has been successfully created
+        if type == RecordType.FILE and create_dict.get("file_id"):
+            try:
+                await delete_record_file_remote(CONFIG.PROJECT_ID, create_dict["file_id"])
+            except Exception as e:
+                logger.warning(
+                    f"Failed to delete remote file {create_dict['file_id']} after record creation: {e}"
+                )
+
         # get the created record
         record = await self.get(collection_id=collection_id, record_id=new_record_id)
 
@@ -165,6 +178,15 @@ class RecordModelOperator(PostgresModelOperator):
             chunk_embedding_list=embeddings,
             metadata=new_metadata,
         )
+
+        # only delete the remote file after the record has been successfully updated
+        if new_type == RecordType.FILE and update_dict.get("file_id"):
+            try:
+                await delete_record_file_remote(CONFIG.PROJECT_ID, update_dict["file_id"])
+            except Exception as e:
+                logger.warning(
+                    f"Failed to delete remote file {update_dict['file_id']} after record update: {e}"
+                )
 
         # get the updated record
         record = await self.get(collection_id=collection_id, record_id=record_id)

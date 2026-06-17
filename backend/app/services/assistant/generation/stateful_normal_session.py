@@ -19,18 +19,16 @@ class StatefulNormalSession(Session):
 
     async def generate(self, system_prompt_variables: Dict):
         try:
-            await self._acquire_chat_lock()
-
             await self.prepare(
                 stream=False,
                 system_prompt_variables=system_prompt_variables,
                 retrieval_log=self.save_logs,
             )
+            await self.chat.lock()
 
             function_calls_round_index = 0
 
             while True:
-                self._ensure_chat_lock()
                 try:
                     chat_completion_event_id = generate_random_event_id()
                     # append chat completion input log
@@ -72,7 +70,6 @@ class StatefulNormalSession(Session):
                 logger.debug(f"chat_completion_function_calls_dict_list = {chat_completion_function_calls_dict_list}")
 
                 if chat_completion_function_calls_dict_list:
-                    self._ensure_chat_lock()
                     function_calls_round_index += 1
                     try:
                         await self.use_tool(
@@ -92,7 +89,6 @@ class StatefulNormalSession(Session):
                 else:
                     break
 
-            self._ensure_chat_lock()
             message = await self.create_assistant_message(
                 content_text=chat_completion_assistant_message_dict["content"],
                 logs=self.logs if self.save_logs else None,
@@ -114,4 +110,4 @@ class StatefulNormalSession(Session):
             )
 
         finally:
-            await self._release_chat_lock()
+            await self.chat.unlock()
