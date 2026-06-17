@@ -1,6 +1,7 @@
 from typing import List
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from starlette_prometheus import metrics, PrometheusMiddleware
@@ -87,6 +88,11 @@ def create_app():
         servers=[{f"url": f"http://localhost:{CONFIG.SERVICE_PORT}"}],
         lifespan=lifespan,
     )
+
+    imgs_volume_path = os.path.abspath(os.path.join(CONFIG.PATH_TO_VOLUME, "imgs"))
+    if not os.path.exists(imgs_volume_path):
+        os.makedirs(imgs_volume_path)
+    app.mount("/imgs", StaticFiles(directory=imgs_volume_path), name="imgs")
 
     init_route_logger(filters=["/health_check", "/prometheus/metrics", "/cache_checksums"])
 
