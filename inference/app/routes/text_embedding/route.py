@@ -93,8 +93,9 @@ async def embed_text(
         )
 
     if not input:
-        return TextEmbeddingResult(
-            data=[], usage=TextEmbeddingUsage(input_tokens=0)
+        raise_http_error(
+            ErrorCode.REQUEST_VALIDATION_ERROR,
+            "Input list cannot be empty.",
         )
 
     batches = []
@@ -205,6 +206,30 @@ async def api_text_embedding(
     input = data.input
     if isinstance(data.input, str):
         input = [data.input]
+
+    if not isinstance(input, list):
+        raise_http_error(
+            ErrorCode.REQUEST_VALIDATION_ERROR,
+            "Input must be a string or a list of strings.",
+        )
+
+    if len(input) == 0:
+        raise_http_error(
+            ErrorCode.REQUEST_VALIDATION_ERROR,
+            "Input list cannot be empty.",
+        )
+
+    for idx, item in enumerate(input):
+        if not isinstance(item, str):
+            raise_http_error(
+                ErrorCode.REQUEST_VALIDATION_ERROR,
+                "Input item at index {} must be a string, got {}.".format(idx, type(item).__name__),
+            )
+        if item.strip() == "":
+            raise_http_error(
+                ErrorCode.REQUEST_VALIDATION_ERROR,
+                "Input string at index {} cannot be empty or whitespace-only.".format(idx),
+            )
 
     default_embedding_size = model_infos[0][2].embedding_size
     last_exception = None
