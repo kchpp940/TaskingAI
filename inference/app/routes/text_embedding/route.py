@@ -11,7 +11,7 @@ from app.models.tokenizer import string_tokens
 import asyncio
 from .schema import *
 import logging
-from typing import List, Optional
+from typing import List, Optional, Dict
 import numpy as np
 from config import CONFIG
 
@@ -78,12 +78,22 @@ async def embed_text(
             ErrorCode.REQUEST_VALIDATION_ERROR,
             f"Provider {provider_id} is not " f"supported through the text_embedding API.",
         )
-    # Split input into batches
+
+    if batch_size <= 0:
+        raise_http_error(
+            ErrorCode.REQUEST_VALIDATION_ERROR,
+            f"Invalid max_batch_size: {batch_size}. Must be a positive integer.",
+        )
+
+    if not input:
+        return TextEmbeddingResult(
+            data=[], usage=TextEmbeddingUsage(input_tokens=0)
+        )
+
     batches = [input[i : i + batch_size] for i in range(0, len(input), batch_size)]
 
-    merged_results = []  # Initialize merged results list
+    merged_results = []
 
-    # Process in chunks of 20 to respect max parallel tasks limit
     max_parallel_tasks = 20
     for i in range(0, len(batches), max_parallel_tasks):
         tasks = []
@@ -100,12 +110,28 @@ async def embed_text(
             )
             tasks.append(task)
 
-        # Run embedding in parallel for each batch within the current chunk
         batch_results = await asyncio.gather(*tasks)
 
-        # Merge results while maintaining order
-        for batch_result in batch_results:
+        for batch_idx, batch_result in enumerate(batch_results):
+            global_start_idx = (i + batch_idx) * batch_size
+            for local_idx, output in enumerate(batch_result.data):
+                output.index = global_start_idx + local_idx
             merged_results.extend(batch_result.data)
+
+    if len(merged_results) != len(input):
+        raise_http_error(
+            ErrorCode.INTERNAL_SERVER_ERROR,
+            f"Embedding result count mismatch: expected {len(input)}, got {len(merged_results)}.",
+        )
+
+    expected_embedding_size = properties.embedding_size
+    for idx, output in enumerate(merged_results):
+        if len(output.embedding) != expected_embedding_size:
+            raise_http_error(
+                ErrorCode.INTERNAL_SERVER_ERROR,
+                f"Embedding dimension mismatch at index {idx}: expected {expected_embedding_size}, got {len(output.embedding)}.",
+            )
+
     usage = TextEmbeddingUsage(input_tokens=sum(string_tokens(i) for i in input))
     return TextEmbeddingResult(data=merged_results, usage=usage)
 
@@ -141,7 +167,7 @@ async def api_text_embedding(
                 validate_model_info(
                     model_schema_id=fallback.model_schema_id,
                     provider_model_id=fallback.provider_model_id,
-                    properties_dict=data.properties,
+                    properties_dict=fallback.properties,
                     model_type=ModelType.TEXT_EMBEDDING,
                 )
             )
