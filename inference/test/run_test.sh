@@ -11,7 +11,7 @@ changed_files=$(echo "$changed_files" | sed 's|inference/||')
 echo "Changed files:"
 echo "$changed_files"
 # Define directories and files that require full testing
-declare -a full_test_triggers=("app/" ".github/" "test/" "provider_dependency/" "requirements.txt" "Dockerfile" "config.py")
+declare -a full_test_triggers=("app/" ".github/" "test/" "provider_dependency/" "requirements.txt" "Dockerfile" "config.py" "common/")
 
 run_full_tests=false
 declare -A modified_providers
