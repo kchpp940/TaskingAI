@@ -104,6 +104,47 @@ class RedisConnection:
             logger.error(f"set_int_if_not_exists: error={e}")
             return False
 
+    async def set_string_if_not_exists(self, key: str, value: str, expire: int = 3600 * 4) -> bool:
+        if self.redis is None:
+            return False
+        try:
+            result = await self.redis.set(key, value, nx=True, ex=expire)
+            acquired = result is not None
+            logger.debug(f"set_string_if_not_exists: key={key}, acquired={acquired}")
+            return acquired
+        except asyncio.CancelledError:
+            logger.error(f"set_string_if_not_exists: operation was cancelled, key={key}")
+            return False
+        except Exception as e:
+            logger.error(f"set_string_if_not_exists: error={e}")
+            return False
+
+    async def delete_if_equals(self, key: str, value: str) -> bool:
+        """
+        Atomically delete the key only if its current value equals the given value.
+        Uses a Lua script to ensure atomicity – prevents deleting a lock owned by another request.
+        """
+        if self.redis is None:
+            return False
+        script = """
+        if redis.call("GET", KEYS[1]) == ARGV[1] then
+            return redis.call("DEL", KEYS[1])
+        else
+            return 0
+        end
+        """
+        try:
+            result = await self.redis.eval(script, 1, key, value)
+            deleted = result == 1
+            logger.debug(f"delete_if_equals: key={key}, deleted={deleted}")
+            return deleted
+        except asyncio.CancelledError:
+            logger.error(f"delete_if_equals: operation was cancelled, key={key}")
+            return False
+        except Exception as e:
+            logger.error(f"delete_if_equals: error={e}")
+            return False
+
     async def set_int(self, key: str, value: int, expire: int = 3600 * 4):
         if self.redis is None:
             return

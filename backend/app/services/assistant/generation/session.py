@@ -42,8 +42,8 @@ class Session(ABC):
         self.assistant: Assistant = assistant
         self.chat: Optional[Chat] = chat
 
-        # chat lock state – only true if this session successfully acquired the lock
-        self._chat_lock_acquired: bool = False
+        # chat lock state – holds the lock owner token if acquired, None otherwise
+        self._chat_lock_token: Optional[str] = None
 
         # tools
         self.tool_dict: Dict[str, Tool] = {}
@@ -455,24 +455,29 @@ class Session(ABC):
 
     async def _acquire_chat_lock(self) -> bool:
         """
-        Atomically acquire the chat lock. Raises MessageGenerationInvalidRequestException if already locked.
-        Sets self._chat_lock_acquired = True on success, so only the acquirer will release the lock.
+        Atomically acquire the chat lock with an owner token.
+        Raises MessageGenerationInvalidRequestException if already locked.
+        Stores the token in self._chat_lock_token so only the acquirer can release the lock,
+        preventing TTL-expired requests from accidentally deleting a newer lock.
         """
         if not self.chat:
             raise ValueError("Chat is required to acquire lock.")
-        acquired = await self.chat.lock()
-        if not acquired:
+        token = await self.chat.lock()
+        if token is None:
             raise MessageGenerationInvalidRequestException(
                 f"Chat {self.chat.chat_id} is locked. Please try again later."
             )
-        self._chat_lock_acquired = True
+        self._chat_lock_token = token
         return True
 
     async def _release_chat_lock(self):
         """
-        Release the chat lock only if this session successfully acquired it.
+        Release the chat lock only if this session holds a valid lock token.
+        The underlying unlock() uses a Lua script for atomic compare-and-delete,
+        so even if the lock TTL expired and was re-acquired by another request,
+        this call will not delete the new lock.
         Safe to call in finally blocks even if lock was never acquired.
         """
-        if self.chat and self._chat_lock_acquired:
-            await self.chat.unlock()
-            self._chat_lock_acquired = False
+        if self.chat and self._chat_lock_token is not None:
+            await self.chat.unlock(self._chat_lock_token)
+            self._chat_lock_token = None
