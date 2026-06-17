@@ -1,23 +1,27 @@
 import ipaddress
 from pathlib import Path
-from typing import Optional
 from urllib.parse import urlparse
 
 import aiohttp
-
-from app.error import ErrorCode, raise_http_error
-from config import CONFIG
 
 ALLOWED_REMOTE_SCHEMES = {"http", "https"}
 LOCAL_HOSTNAMES = {"localhost", "0.0.0.0", "127.0.0.1", "::1"}
 LOCAL_IMAGE_ROUTE_PREFIX = "/imgs/"
 REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=30, connect=10)
 
+_config = {
+    "path_to_volume": None,
+    "raise_http_error": None,
+    "error_code_provider": None,
+    "error_code_validation": None,
+}
+
 __all__ = [
     "ALLOWED_REMOTE_SCHEMES",
     "LOCAL_HOSTNAMES",
     "LOCAL_IMAGE_ROUTE_PREFIX",
     "REQUEST_TIMEOUT",
+    "init_config",
     "is_private_ip",
     "image_url_is_on_localhost",
     "parse_local_image_path",
@@ -25,6 +29,36 @@ __all__ = [
     "resolve_imgs_path",
     "resolve_volume_path",
 ]
+
+
+def init_config(
+    path_to_volume: str,
+    raise_http_error,
+    error_code_provider_error,
+    error_code_request_validation_error,
+):
+    _config["path_to_volume"] = path_to_volume
+    _config["raise_http_error"] = raise_http_error
+    _config["error_code_provider"] = error_code_provider_error
+    _config["error_code_validation"] = error_code_request_validation_error
+
+
+def _get_path_to_volume() -> str:
+    if _config["path_to_volume"] is None:
+        raise RuntimeError("image_security not initialized. Call init_config() first.")
+    return _config["path_to_volume"]
+
+
+def _raise_provider_error(message: str):
+    if _config["raise_http_error"] is None or _config["error_code_provider"] is None:
+        raise RuntimeError("image_security not initialized. Call init_config() first.")
+    _config["raise_http_error"](_config["error_code_provider"], message)
+
+
+def _raise_validation_error(message: str):
+    if _config["raise_http_error"] is None or _config["error_code_validation"] is None:
+        raise RuntimeError("image_security not initialized. Call init_config() first.")
+    _config["raise_http_error"](_config["error_code_validation"], message)
 
 
 def is_private_ip(hostname: str) -> bool:
@@ -36,7 +70,7 @@ def is_private_ip(hostname: str) -> bool:
 
 
 def _volume_base_dir() -> Path:
-    return Path(CONFIG.PATH_TO_VOLUME).resolve()
+    return Path(_get_path_to_volume()).resolve()
 
 
 def _imgs_base_dir() -> Path:
@@ -54,7 +88,7 @@ def image_url_is_on_localhost(url: str) -> bool:
         return False
 
     if not parsed.path.startswith(LOCAL_IMAGE_ROUTE_PREFIX):
-        raise_http_error(ErrorCode.PROVIDER_ERROR, "Invalid local image url.")
+        _raise_provider_error("Invalid local image url.")
 
     return True
 
@@ -71,7 +105,7 @@ def resolve_imgs_path(relative_path: str) -> Path:
     try:
         candidate.relative_to(base)
     except ValueError:
-        raise_http_error(ErrorCode.PROVIDER_ERROR, "Invalid local image path.")
+        _raise_provider_error("Invalid local image path.")
     return candidate
 
 
@@ -81,7 +115,7 @@ def resolve_volume_path(target_path: str) -> Path:
     try:
         candidate.relative_to(base)
     except ValueError:
-        raise_http_error(ErrorCode.REQUEST_VALIDATION_ERROR, "Invalid file storage path.")
+        _raise_validation_error("Invalid file storage path.")
     return candidate
 
 
@@ -89,11 +123,14 @@ def validate_remote_url(url: str) -> None:
     try:
         parsed = urlparse(url)
     except Exception:
-        raise_http_error(ErrorCode.PROVIDER_ERROR, "Invalid image url.")
+        _raise_provider_error("Invalid image url.")
+        return
 
     if parsed.scheme.lower() not in ALLOWED_REMOTE_SCHEMES:
-        raise_http_error(ErrorCode.PROVIDER_ERROR, "Invalid image url scheme.")
+        _raise_provider_error("Invalid image url scheme.")
+        return
 
     hostname = parsed.hostname or ""
     if hostname in LOCAL_HOSTNAMES or is_private_ip(hostname):
-        raise_http_error(ErrorCode.PROVIDER_ERROR, "Invalid remote image host.")
+        _raise_provider_error("Invalid remote image host.")
+        return

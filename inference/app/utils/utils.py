@@ -1,8 +1,6 @@
 import time
 
 import aiohttp
-
-from app.error import ErrorCode, raise_http_error, raise_provider_api_error
 import json
 import hashlib
 import re
@@ -12,7 +10,8 @@ import base64
 from io import BytesIO
 from PIL import Image
 
-from app.utils.image_security import (
+from app.error import ErrorCode, raise_http_error, raise_provider_api_error
+from common.image_security import (
     REQUEST_TIMEOUT,
     image_url_is_on_localhost,
     parse_local_image_path,

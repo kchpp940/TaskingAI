@@ -7,7 +7,7 @@ from aiohttp import ClientSession
 import aioboto3
 
 from app.error import raise_provider_api_error, raise_http_error, ErrorCode
-from app.utils.image_security import (
+from common.image_security import (
     REQUEST_TIMEOUT,
     resolve_volume_path,
     validate_remote_url,

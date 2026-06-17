@@ -4,7 +4,7 @@ from io import BytesIO
 import aiohttp
 
 from app.error import raise_provider_api_error
-from app.utils.image_security import (
+from common.image_security import (
     REQUEST_TIMEOUT,
     image_url_is_on_localhost,
     parse_local_image_path,

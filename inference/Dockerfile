@@ -12,17 +12,26 @@ ENV PYTHONPATH=/code/ \
 # Set working directory
 WORKDIR /code
 
+# Install system dependencies and fonts
+RUN apt-get update && apt-get install -y \
+    fonts-noto \
+    fonts-noto-cjk \
+    && rm -rf /var/lib/apt/lists/*
+
 # Copy only the requirements.txt first to leverage Docker cache
-COPY ./requirements.txt ./
+COPY ./inference/requirements.txt ./
 RUN pip3 install --no-cache-dir -r requirements.txt
 
-# Copy code to working directory
-COPY ./app ./app
-COPY ./providers ./providers
-COPY ./provider_dependency ./provider_dependency
-COPY ./config.py ./
-COPY ./test/utils/utils.py ./test/utils/utils.py
-COPY ./scripts ./scripts
+# Copy shared common package
+COPY ./common ./common
+
+# Copy service code to working directory
+COPY ./inference/app ./app
+COPY ./inference/providers ./providers
+COPY ./inference/provider_dependency ./provider_dependency
+COPY ./inference/config.py ./
+COPY ./inference/test/utils/utils.py ./test/utils/utils.py
+COPY ./inference/scripts ./scripts
 
 # Command to run the application using gunicorn
 CMD gunicorn --bind 0.0.0.0:8000 \

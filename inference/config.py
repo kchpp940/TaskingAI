@@ -1,7 +1,13 @@
 import os
+import sys
+from pathlib import Path
 from dotenv import load_dotenv
 import logging
 from app.error.error_code import ErrorCode, raise_http_error
+
+_project_root = Path(__file__).resolve().parent.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
 
 logger = logging.Logger(__name__)
 load_dotenv()
@@ -96,3 +102,12 @@ class Config:
 
 
 CONFIG = Config()
+
+from common.image_security import init_config
+
+init_config(
+    path_to_volume=CONFIG.PATH_TO_VOLUME,
+    raise_http_error=raise_http_error,
+    error_code_provider_error=ErrorCode.PROVIDER_ERROR,
+    error_code_request_validation_error=ErrorCode.REQUEST_VALIDATION_ERROR,
+)
