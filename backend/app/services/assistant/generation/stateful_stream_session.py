@@ -178,14 +178,15 @@ class StatefulStreamSession(Session):
             if self.debug and usage_summary_trace:
                 yield f"data: {json.dumps(usage_summary_trace.to_dict())}\n\n"
 
+            # Persist trace_events along with the message when debug is enabled
+            persistent_trace_events = self.get_trace_events_dicts()
+
             message = await self.create_assistant_message(
                 content_text=chat_completion_assistant_message_dict["content"],
                 logs=self.logs if self.save_logs else None,
+                trace_events=persistent_trace_events,
             )
             message_dict = message.to_response_dict()
-            trace_dicts = self.get_trace_events_dicts()
-            if trace_dicts is not None:
-                message_dict["trace_events"] = trace_dicts
             yield f"data: {json.dumps(message_dict)}\n\n"
             yield SSE_DONE_MSG
 

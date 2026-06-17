@@ -1,4 +1,4 @@
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from pydantic import Field, BaseModel
 from enum import Enum
 import logging
@@ -75,11 +75,33 @@ class Message(ModelEntity):
     num_tokens: int = Field(..., ge=0, description="The number of tokens in the message.")
     metadata: Dict = metadata_field()
 
+    # Optional fields stored in `extra` JSONB column
+    logs: Optional[List[MessageGenerationLog]] = Field(
+        None,
+        description="Legacy generation logs. Only present for assistant messages when debug/save_logs was enabled.",
+    )
+    trace_events: Optional[List[Dict[str, Any]]] = Field(
+        None,
+        description="Stable trace events for generation debugging. Only present for assistant messages when debug was enabled.",
+    )
+
     created_timestamp: int = created_timestamp_field()
     updated_timestamp: int = updated_timestamp_field()
 
     @staticmethod
     def build(row):
+        extra = load_json_attr(row, "extra", {})
+        logs_data = extra.get("logs")
+        trace_events_data = extra.get("trace_events")
+
+        try:
+            logs = [MessageGenerationLog(**log) for log in logs_data] if logs_data else None
+        except Exception as e:
+            logger.warning(f"Failed to parse logs from message extra: {e}")
+            logs = None
+
+        trace_events = trace_events_data if isinstance(trace_events_data, list) else None
+
         return Message(
             assistant_id=row["assistant_id"],
             chat_id=row["chat_id"],
@@ -88,12 +110,14 @@ class Message(ModelEntity):
             content=MessageContent(**load_json_attr(row, "content", {})),
             num_tokens=row["num_tokens"],
             metadata=load_json_attr(row, "metadata", {}),
+            logs=logs,
+            trace_events=trace_events,
             created_timestamp=row["created_timestamp"],
             updated_timestamp=row["updated_timestamp"],
         )
 
     def to_response_dict(self) -> Dict:
-        return {
+        result = {
             "object": "Message",
             "assistant_id": self.assistant_id,
             "chat_id": self.chat_id,
@@ -105,6 +129,11 @@ class Message(ModelEntity):
             "created_timestamp": self.created_timestamp,
             "updated_timestamp": self.updated_timestamp,
         }
+        if self.logs is not None:
+            result["logs"] = [log.model_dump(exclude_none=True) for log in self.logs]
+        if self.trace_events is not None:
+            result["trace_events"] = self.trace_events
+        return result
 
     @staticmethod
     def object_name() -> str:
@@ -146,7 +175,7 @@ class Message(ModelEntity):
 
     @staticmethod
     def create_fields() -> List[str]:
-        return ["role", "content", "metadata"]
+        return ["role", "content", "metadata", "extra"]
 
     @staticmethod
     def update_fields() -> List[str]:

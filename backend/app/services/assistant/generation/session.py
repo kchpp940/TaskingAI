@@ -93,18 +93,27 @@ class Session(ABC):
         if self.debug:
             self.trace_events.append(event)
 
-    async def create_assistant_message(self, content_text: str, logs: List[Dict] = None):
+    async def create_assistant_message(
+        self,
+        content_text: str,
+        logs: List[Dict] = None,
+        trace_events: List[Dict] = None,
+    ):
         if not self.chat:
             raise MessageGenerationInvalidRequestException("Chat is required to create a message.")
+        create_dict = {
+            "role": MessageRole.ASSISTANT.value,
+            "content": MessageContent(text=content_text),
+            "metadata": {},
+        }
+        if logs is not None:
+            create_dict["logs"] = logs
+        if trace_events is not None:
+            create_dict["trace_events"] = trace_events
         return await message_ops.create(
             assistant_id=self.assistant.assistant_id,
             chat_id=self.chat.chat_id,
-            create_dict={
-                "role": MessageRole.ASSISTANT.value,
-                "content": MessageContent(text=content_text),
-                "metadata": {},
-                "logs": logs,
-            },
+            create_dict=create_dict,
             check_max_count=False,
         )
 

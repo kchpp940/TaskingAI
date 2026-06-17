@@ -417,6 +417,20 @@ function Playground() {
             localStorage.setItem('contentHasMore', JSON.stringify(res.has_more))
             localStorage.setItem('contentTalk', JSON.stringify([...data, ...JSON.parse(contentTalk1)]) as any)
             setContentTalk(prevValues => [...data, ...prevValues])
+
+            if (!param.after) {
+                const latestMsgs = [...data]
+                const lastAssistantMsg = [...latestMsgs].reverse().find(
+                    (m: any) => m.role === 'assistant' && m.trace_events && Array.isArray(m.trace_events)
+                )
+                if (lastAssistantMsg) {
+                    const traceEvents = lastAssistantMsg.trace_events.filter((e: any) => e.object === 'TraceEvent')
+                    if (traceEvents.length > 0) {
+                        setTraceEvents(traceEvents)
+                        setTracePanelVisible(true)
+                    }
+                }
+            }
         } catch (error) {
             const apiError = error as ApiErrorResponse;
             const errorMessage: string = apiError.response.data.error.message;
@@ -1077,6 +1091,17 @@ function Playground() {
                 const data = res1.data.reverse()
                 localStorage.setItem('contentTalk', JSON.stringify(data))
                 setContentTalk(res1.data)
+
+                const lastAssistantMsg = data.find(
+                    (m: any) => m.role === 'assistant' && m.trace_events && Array.isArray(m.trace_events)
+                )
+                if (lastAssistantMsg) {
+                    const traceEvents = lastAssistantMsg.trace_events.filter((e: any) => e.object === 'TraceEvent')
+                    if (traceEvents.length > 0) {
+                        setTraceEvents(traceEvents)
+                        setTracePanelVisible(true)
+                    }
+                }
             } catch (e) {
                 const apiResponse = e as ApiErrorResponse
                 const message = apiResponse.response.data.error.message
@@ -1545,7 +1570,29 @@ function Playground() {
                                     </div>}
                                     {contentTalk.map((item, index) => (
                                         <div className={styles['message']} key={index} ref={divRef}>
-                                            <div className={`${styles.subText1} ${item.role === 'user' ? styles.user : ''}`}>{item.role.charAt(0).toUpperCase() + item.role.slice(1)}</div>
+                                            <div className={`${styles.subText1} ${item.role === 'user' ? styles.user : ''}`}>
+                                                {item.role.charAt(0).toUpperCase() + item.role.slice(1)}
+                                                {item.role === 'assistant' && item.trace_events && Array.isArray(item.trace_events) && item.trace_events.length > 0 && (
+                                                    <span
+                                                        onClick={() => {
+                                                            const traceEvents = item.trace_events.filter((e: any) => e.object === 'TraceEvent')
+                                                            if (traceEvents.length > 0) {
+                                                                setTraceEvents(traceEvents)
+                                                                setTracePanelVisible(true)
+                                                                setDebugEnabled(true)
+                                                            }
+                                                        }}
+                                                        style={{
+                                                            marginLeft: '8px',
+                                                            cursor: 'pointer',
+                                                            fontSize: '12px',
+                                                            color: '#1890ff',
+                                                        }}
+                                                    >
+                                                        🔍 View Trace
+                                                    </span>
+                                                )}
+                                            </div>
                                             {typeof (item.content.text) === 'string' && <div className={`${styles.text1} ${item.role === 'user' ? styles.userInfo : ''}`} style={{ whiteSpace: "pre-line" }}>{checkBoxValue.indexOf(4) !== -1 ? <MarkdownMessageBlock message={item.content.text} /> : item.content.text}</div>}
                                             {typeof (item.content.text) === 'object' && <div className={`text1 ${item.role === 'user' ? styles.userInfo : ''}`}>{item.content.text.map((item1: any, index1: number) => (<div key={index1} className={`${(item1.color === 'orange' && index === contentTalk.length - 1) ? 'orange' : 'green'} ${index1 === item.content.text.length - 1 && styles.lastItem}`}>
                                                 {(item1.color === 'orange' && index === contentTalk.length - 1 && item1.event_step !== '') ?

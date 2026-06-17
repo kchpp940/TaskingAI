@@ -91,14 +91,15 @@ class StatefulNormalSession(Session):
             # Build final usage summary trace
             self.build_usage_summary_trace()
 
+            # Persist trace_events along with the message when debug is enabled
+            persistent_trace_events = self.get_trace_events_dicts()
+
             message = await self.create_assistant_message(
                 content_text=chat_completion_assistant_message_dict["content"],
                 logs=self.logs if self.save_logs else None,
+                trace_events=persistent_trace_events,
             )
             response_dict = message.to_response_dict()
-            trace_dicts = self.get_trace_events_dicts()
-            if trace_dicts is not None:
-                response_dict["trace_events"] = trace_dicts
             return BaseDataResponse(data=response_dict)
 
         except MessageGenerationInvalidRequestException as e:
