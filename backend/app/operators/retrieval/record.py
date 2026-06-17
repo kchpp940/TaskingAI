@@ -45,8 +45,21 @@ async def process_content(
         url=url,
     )
 
-    # embed the documents
+    # split content into chunks
     chunk_text_list, num_tokens_list = text_splitter.split_text(text=content_to_split, title=title)
+
+    valid_chunks = []
+    valid_tokens = []
+    for chunk, tokens in zip(chunk_text_list, num_tokens_list):
+        if chunk and chunk.strip():
+            valid_chunks.append(chunk)
+            valid_tokens.append(tokens)
+
+    chunk_text_list = valid_chunks
+    num_tokens_list = valid_tokens
+
+    if not chunk_text_list:
+        raise_request_validation_error("The record content is empty after splitting into chunks.")
     if len(chunk_text_list) > max_num_chunks:
         raise_http_error(
             ErrorCode.RESOURCE_LIMIT_REACHED,

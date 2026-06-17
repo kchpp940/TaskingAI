@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 import shutil
 import uuid
 from typing import Optional
@@ -34,12 +35,22 @@ __web_reader = WebContentLoader()
 _bucket_name = CONFIG.S3_BUCKET_NAME
 _record_file_base_dir = CONFIG.PATH_TO_VOLUME + "/tmp/record_file"
 
+_HEX_32_RE = re.compile(r"^[0-9a-f]{32}$")
 
-def _is_safe_work_dir(work_dir: str) -> bool:
-    try:
-        return os.path.commonpath([_record_file_base_dir, work_dir]) == os.path.abspath(_record_file_base_dir)
-    except ValueError:
+
+def _is_valid_attempt_dir(work_dir: str) -> bool:
+    abs_base = os.path.abspath(_record_file_base_dir)
+    abs_work = os.path.abspath(work_dir)
+    rel = os.path.relpath(abs_work, abs_base)
+    parts = rel.split(os.sep)
+    if len(parts) != 2:
         return False
+    file_id_part, attempt_part = parts
+    if not file_id_part or not attempt_part:
+        return False
+    if not _HEX_32_RE.match(attempt_part):
+        return False
+    return True
 
 
 async def _create_record_work_dir(file_id: str) -> str:
@@ -83,20 +94,20 @@ async def download_record_file(project_id: str, file_id: str) -> str:
 def cleanup_record_workdir(local_file_path: str) -> None:
     """
     Remove the isolated working directory for the current import attempt.
-    Verifies the directory is safely nested under the base directory using
-    os.path.commonpath before deletion.
+    Only allows deletion of a {file_id}/{attempt_uuid} leaf directory
+    exactly two levels below the base directory, and validates the uuid
+    component is a 32-char hex string. Refuses to delete the base directory,
+    any file_id parent directory, or paths with unexpected structure.
     :param local_file_path: the local file path returned by download_record_file
     """
     work_dir = os.path.dirname(local_file_path)
-    if _is_safe_work_dir(work_dir):
+    if _is_valid_attempt_dir(work_dir):
         shutil.rmtree(work_dir, ignore_errors=True)
         logger.debug(f"Cleaned up record work directory: {work_dir}")
-    elif _is_safe_work_dir(os.path.dirname(work_dir)):
-        shutil.rmtree(work_dir, ignore_errors=True)
-        logger.debug(f"Cleaned up record work directory (fallback): {work_dir}")
     else:
         logger.warning(
-            f"Skipping cleanup for {work_dir}: outside allowed base directory {_record_file_base_dir}"
+            f"Skipping cleanup for {work_dir}: not a valid attempt directory "
+            f"(expected base_dir/<file_id>/<32hex_uuid>/)"
         )
 
 
@@ -273,9 +284,9 @@ async def load_content_to_split(
             raise e
         except Exception as e:
             logger.error(f"Failed to load content from web {url}: Exception {e}")
-            raise_http_error(ErrorCode.INTERNAL_SERVER_ERROR, f"Failed to process web url {url}")
+            raise_http_error(ErrorCode.INVALID_REQUEST, f"Failed to load content from web URL: {e}")
 
         if not loaded_content:
-            raise_http_error(ErrorCode.INVALID_REQUEST, f"The web content is empty")
+            raise_request_validation_error(f"Web content is empty")
 
         return loaded_content
