@@ -201,19 +201,19 @@ class AzureOpenaiChatCompletionModel(BaseChatCompletionModel):
         if delta and delta.get("tool_calls"):
             tool_call = delta["tool_calls"][0]
             toll_call_index = tool_call["index"]
-            tool_call_function = tool_call["function"]
+            tool_call_function = tool_call.get("function", {})
             tool_call_id = tool_call.get("id")
 
             if toll_call_index == function_calls_content.index:
-                # append to the current function call argument string
-                function_calls_content.arguments_strs[function_calls_content.index] += tool_call_function["arguments"]
+                function_calls_content.append_to_current(tool_call_function.get("arguments"))
 
             elif toll_call_index > function_calls_content.index:
-                # trigger another function call
-                function_calls_content.arguments_strs.append(tool_call_function["arguments"] or "")
-                function_calls_content.names.append(tool_call_function["name"])
-                function_calls_content.ids.append(get_or_create_function_call_id(tool_call_id))
-                function_calls_content.index = toll_call_index
+                function_calls_content.start_new_function_call(
+                    index=toll_call_index,
+                    name=tool_call_function.get("name"),
+                    initial_arguments=tool_call_function.get("arguments"),
+                    tool_call_id=tool_call_id,
+                )
             return function_calls_content
 
         return None

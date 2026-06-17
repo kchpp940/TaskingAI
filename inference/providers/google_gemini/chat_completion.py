@@ -276,14 +276,14 @@ class GoogleGeminiChatCompletionModel(BaseChatCompletionModel):
             toll_call_index = 0
 
             if toll_call_index == function_calls_content.index:
-                # append to the current function call argument string
-                function_calls_content.arguments_dicts[function_calls_content.index] += tool_call["args"]
+                function_calls_content.append_dict_to_current(tool_call.get("args"))
 
             elif toll_call_index > function_calls_content.index:
-                # trigger another function call
-                function_calls_content.arguments_dicts.append(tool_call["args"])
-                function_calls_content.names.append(tool_call["name"])
-                function_calls_content.index = toll_call_index
+                function_calls_content.start_new_function_call(
+                    index=toll_call_index,
+                    name=tool_call.get("name"),
+                    initial_arguments_dict=tool_call.get("args"),
+                )
             return function_calls_content
 
         return None

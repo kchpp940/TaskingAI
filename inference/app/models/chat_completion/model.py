@@ -43,6 +43,55 @@ class ChatCompletionFunctionCallsContent(object):
         # The ids of the function call
         self.ids: List[str] = []
 
+    def start_new_function_call(
+        self,
+        index: int,
+        name: str,
+        initial_arguments: str = "",
+        initial_arguments_dict: Optional[Dict] = None,
+        tool_call_id: Optional[str] = None,
+    ) -> None:
+        """
+        Start a new function call at the given index.
+        Atomically appends name, arguments_strs / arguments_dicts, ids together to avoid index misalignment.
+        Updates the current internal index pointer.
+        """
+        self.arguments_strs.append(initial_arguments or "")
+        self.arguments_dicts.append(initial_arguments_dict or {})
+        self.names.append(name or "")
+        self.ids.append(get_or_create_function_call_id(tool_call_id))
+        self.index = index
+
+    def append_to_current(self, arguments_fragment: str) -> None:
+        """
+        Append arguments fragment (string) to the current (active) function call.
+        Uses the current internal index pointer.
+        """
+        if self.index >= 0 and self.index < len(self.arguments_strs):
+            self.arguments_strs[self.index] += arguments_fragment or ""
+
+    def append_to_index(self, index: int, arguments_fragment: str) -> None:
+        """
+        Append arguments fragment (string) to the function call at the specified index.
+        """
+        if index >= 0 and index < len(self.arguments_strs):
+            self.arguments_strs[index] += arguments_fragment or ""
+
+    def append_dict_to_current(self, arguments_dict: Optional[Dict]) -> None:
+        """
+        Merge arguments dict into the current (active) function call's arguments_dicts.
+        Uses the current internal index pointer.
+        """
+        if self.index >= 0 and self.index < len(self.arguments_dicts) and arguments_dict:
+            self.arguments_dicts[self.index].update(arguments_dict)
+
+    def append_dict_to_index(self, index: int, arguments_dict: Optional[Dict]) -> None:
+        """
+        Merge arguments dict into the function call at the specified index.
+        """
+        if index >= 0 and index < len(self.arguments_dicts) and arguments_dict:
+            self.arguments_dicts[index].update(arguments_dict)
+
 
 def generate_random_function_call_id():
     """
