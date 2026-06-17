@@ -1,9 +1,11 @@
 import json
 import logging
 import os
+import shutil
 from typing import Optional
 import aiofiles.os
 from fastapi import HTTPException
+from pathvalidate import sanitize_filename
 from tkhelper.error import raise_http_error, ErrorCode, raise_request_validation_error
 
 from app.models import RecordType, UploadFilePurpose
@@ -29,27 +31,31 @@ __markdown_reader = MarkdownFileContentLoader()
 __web_reader = WebContentLoader()
 
 _bucket_name = CONFIG.S3_BUCKET_NAME
-_record_file_dir = CONFIG.PATH_TO_VOLUME + "/tmp/record_file"
+_record_file_base_dir = CONFIG.PATH_TO_VOLUME + "/tmp/record_file"
 
 
-async def _ensure_record_file_dir() -> None:
-    if not await aiofiles.os.path.exists(_record_file_dir):
-        await aiofiles.os.makedirs(_record_file_dir, exist_ok=True)
+async def _record_work_dir(file_id: str) -> str:
+    work_dir = os.path.join(_record_file_base_dir, file_id)
+    await aiofiles.os.makedirs(work_dir, exist_ok=True)
+    return work_dir
 
 
 async def download_record_file(project_id: str, file_id: str) -> str:
     """
-    Download record file from minio
+    Download record file from MinIO/S3 into an isolated working directory keyed by file_id.
     :param project_id: the project id
     :param file_id: the file id
     :return: the local file path
     """
-    await _ensure_record_file_dir()
+    work_dir = await _record_work_dir(file_id)
 
     file_url = boto3_client.get_file_url(_bucket_name, UploadFilePurpose.RECORD_FILE.value, file_id, project_id)
-    file_name = file_url.split("/")[-1]
+    raw_name = file_url.split("/")[-1]
+    safe_name = sanitize_filename(raw_name).replace(" ", "_")
+    if not safe_name:
+        safe_name = f"{file_id}.dat"
 
-    local_file_path = _record_file_dir + f"/{file_name}"
+    local_file_path = os.path.join(work_dir, safe_name)
 
     await boto3_client.download_file_to_path(
         bucket_name=_bucket_name,
@@ -64,14 +70,20 @@ async def download_record_file(project_id: str, file_id: str) -> str:
     return local_file_path
 
 
-def remove_record_file(local_file_path):
+def cleanup_record_workdir(local_file_path: str) -> None:
     """
-    Remove local record file
-    :param local_file_path: the local file path
+    Remove the isolated working directory for the current import.
+    Only deletes the per-file_id subdirectory, never touches siblings.
+    :param local_file_path: the local file path returned by download_record_file
     """
-    if os.path.exists(local_file_path):
-        os.remove(local_file_path)
-        logger.debug(f"Removed local record file: {local_file_path}")
+    work_dir = os.path.dirname(local_file_path)
+    if work_dir.startswith(_record_file_base_dir) and work_dir != _record_file_base_dir:
+        shutil.rmtree(work_dir, ignore_errors=True)
+        logger.debug(f"Cleaned up record work directory: {work_dir}")
+    else:
+        if os.path.exists(local_file_path):
+            os.remove(local_file_path)
+            logger.debug(f"Removed local record file: {local_file_path}")
 
 
 async def delete_record_file_remote(project_id: str, file_id: str) -> None:
@@ -225,7 +237,7 @@ async def load_content_to_split(
 
         finally:
             if local_file_path:
-                remove_record_file(local_file_path)
+                cleanup_record_workdir(local_file_path)
 
     elif record_type == RecordType.WEB:
         if not url:
