@@ -220,6 +220,7 @@ class AnthropicChatCompletionModel(BaseChatCompletionModel):
                     func_call = build_function_call(
                         name=message["name"],
                         arguments_dict=message["input"],
+                        id=message.get("id"),
                     )
                     function_calls.append(func_call)
             return function_calls if function_calls else None
@@ -291,9 +292,11 @@ class AnthropicChatCompletionModel(BaseChatCompletionModel):
         tool_call_function = chunk_data.get("content_block", {})
         if tool_call_function and tool_call_function.get("type") == "tool_use":
             toll_call_index = chunk_data["index"] - 1
+            tool_call_id = tool_call_function.get("id")
 
             function_calls_content.arguments_strs.append("")
             function_calls_content.names.append(tool_call_function["name"])
+            function_calls_content.ids.append(tool_call_id or "")
             function_calls_content.index = toll_call_index
             return function_calls_content
 

@@ -203,6 +203,7 @@ class OpenrouterChatCompletionModel(BaseChatCompletionModel):
             tool_call = delta["tool_calls"][0]
             toll_call_index = tool_call["index"]
             tool_call_function = tool_call["function"]
+            tool_call_id = tool_call.get("id")
 
             if toll_call_index == function_calls_content.index:
                 # append to the current function call argument string
@@ -212,6 +213,7 @@ class OpenrouterChatCompletionModel(BaseChatCompletionModel):
                 # trigger another function call
                 function_calls_content.arguments_strs.append(tool_call_function["arguments"] or "")
                 function_calls_content.names.append(tool_call_function["name"])
+                function_calls_content.ids.append(tool_call_id)
                 function_calls_content.index = toll_call_index
             return function_calls_content
 

@@ -39,6 +39,9 @@ class ChatCompletionFunctionCallsContent(object):
         # The names of the function call
         self.names: List[str] = []
 
+        # The ids of the function call
+        self.ids: List[str] = []
+
 
 def generate_random_function_call_id():
     """
@@ -52,6 +55,7 @@ def build_function_call(
     name: str,
     arguments_str: str = None,
     arguments_dict: Dict = None,
+    id: str = None,
 ) -> ChatCompletionFunctionCall:
     """
     Build a function call from the name and arguments.
@@ -68,7 +72,7 @@ def build_function_call(
         except json.decoder.JSONDecodeError:
             raise_provider_api_error(error_msg)
     return ChatCompletionFunctionCall(
-        id=generate_random_function_call_id(),
+        id=id or generate_random_function_call_id(),
         name=name,
         arguments=arguments_dicts,
     )
@@ -276,10 +280,12 @@ class BaseChatCompletionModel(ABC):
             for i, name in enumerate(function_calls_content.names):
                 strs = function_calls_content.arguments_strs
                 dicts = function_calls_content.arguments_dicts
+                ids = function_calls_content.ids
                 function_call = build_function_call(
                     name=name,
                     arguments_str=strs[i] if strs else None,
                     arguments_dict=dicts[i] if dicts else None,
+                    id=ids[i] if ids and i < len(ids) else None,
                 )
                 function_calls.append(function_call)
             finish_reason = ChatCompletionFinishReason.function_calls

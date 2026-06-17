@@ -184,31 +184,60 @@ def adapt_openai_chat_completion_response(
 
 
 def adapt_openai_chat_completion_stream_chunk(chunk: Dict, chunk_id: str, data: OpenaiChatCompletionRequest) -> Dict:
-    # Basic data extraction from the chunk
     chat_completion_chunk = {
         "id": chunk_id,
-        "created": chunk["created_timestamp"] // 1000,  # Convert from ms to s
+        "created": chunk["created_timestamp"] // 1000,
         "model": data.model,
         "object": "chat.completion.chunk",
-        "system_fingerprint": None,  # Optional and static for example
+        "system_fingerprint": None,
         "choices": [],
     }
 
-    # Assuming the 'delta' field contains serialized JSON (as a string) for the tool_calls
     if "delta" in chunk:
-        # Deserialize the delta content
-        # Constructing the OpenaiChoiceDelta
         delta = {
             "content": chunk["delta"],
             "role": chunk["role"],
         }
 
-        # Constructing the OpenaiChoice
+        tool_calls_delta = chunk.get("tool_calls")
+        if tool_calls_delta:
+            if data.tools:
+                delta["tool_calls"] = [
+                    {
+                        "index": tc.get("index", idx),
+                        "id": tc.get("id"),
+                        "function": {
+                            "name": tc.get("function", {}).get("name"),
+                            "arguments": tc.get("function", {}).get("arguments"),
+                        },
+                        "type": "function",
+                    }
+                    for idx, tc in enumerate(tool_calls_delta)
+                ]
+            else:
+                first_tc = tool_calls_delta[0] if tool_calls_delta else {}
+                delta["function_call"] = {
+                    "name": first_tc.get("function", {}).get("name"),
+                    "arguments": first_tc.get("function", {}).get("arguments"),
+                }
+
+        finish_reason = chunk.get("finish_reason")
+        if finish_reason:
+            finish_reason_map = {
+                "stop": "stop",
+                "length": "length",
+                "function_calls": "tool_calls" if data.tools else "function_call",
+                "recitation": "stop",
+                "error": "content_filter",
+                "unknown": "stop",
+            }
+            finish_reason = finish_reason_map.get(finish_reason, None)
+
         chat_completion_chunk["choices"].append(
             {
                 "delta": delta,
-                "finish_reason": None,  # Example, no data to infer this
-                "index": chunk["index"],
+                "finish_reason": finish_reason,
+                "index": chunk.get("index", 0),
                 "logprobs": None,
             }
         )
@@ -220,7 +249,6 @@ def adapt_openai_chat_completion_stream(
     chat_completion: Dict, chunk_id: str, data: OpenaiChatCompletionRequest
 ) -> Dict:
     message = chat_completion["message"]
-    content = message.get("content")
     role = message["role"]
     created_timestamp_seconds = chat_completion["created_timestamp"] // 1000
 
