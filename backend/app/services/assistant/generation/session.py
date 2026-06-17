@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from fastapi import HTTPException
 from abc import ABC
@@ -37,6 +38,9 @@ MESSAGE_RESPONSE = 5
 
 
 class Session(ABC):
+    CHAT_LOCK_TTL: int = 120
+    CHAT_LOCK_RENEW_INTERVAL: int = 40
+
     def __init__(self, assistant: Assistant, chat: Optional[Chat], save_logs: bool):
         # assistant
         self.assistant: Assistant = assistant
@@ -44,6 +48,7 @@ class Session(ABC):
 
         # chat lock state – holds the lock owner token if acquired, None otherwise
         self._chat_lock_token: Optional[str] = None
+        self._chat_lock_watchdog: Optional[asyncio.Task] = None
 
         # tools
         self.tool_dict: Dict[str, Tool] = {}
@@ -453,31 +458,65 @@ class Session(ABC):
         else:
             return None
 
+    async def _lock_watchdog_loop(self):
+        """
+        Background coroutine that periodically renews the chat lock TTL.
+        Exits silently when cancelled or when the lock token changes.
+        """
+        try:
+            while True:
+                await asyncio.sleep(self.CHAT_LOCK_RENEW_INTERVAL)
+                token = self._chat_lock_token
+                if token is None or self.chat is None:
+                    break
+                renewed = await self.chat.renew_lock(token, ttl=self.CHAT_LOCK_TTL)
+                if not renewed:
+                    logger.warning(
+                        f"_lock_watchdog_loop: failed to renew chat lock "
+                        f"(chat_id={self.chat.chat_id}), token may have expired or been stolen"
+                    )
+                    break
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.error(f"_lock_watchdog_loop: unexpected error: {e}")
+
+    def _start_lock_watchdog(self):
+        if self._chat_lock_watchdog is None or self._chat_lock_watchdog.done():
+            self._chat_lock_watchdog = asyncio.create_task(self._lock_watchdog_loop())
+
+    def _stop_lock_watchdog(self):
+        if self._chat_lock_watchdog is not None and not self._chat_lock_watchdog.done():
+            self._chat_lock_watchdog.cancel()
+        self._chat_lock_watchdog = None
+
     async def _acquire_chat_lock(self) -> bool:
         """
-        Atomically acquire the chat lock with an owner token.
+        Atomically acquire the chat lock with an owner token and start the renewal watchdog.
         Raises MessageGenerationInvalidRequestException if already locked.
         Stores the token in self._chat_lock_token so only the acquirer can release the lock,
         preventing TTL-expired requests from accidentally deleting a newer lock.
         """
         if not self.chat:
             raise ValueError("Chat is required to acquire lock.")
-        token = await self.chat.lock()
+        token = await self.chat.lock(ttl=self.CHAT_LOCK_TTL)
         if token is None:
             raise MessageGenerationInvalidRequestException(
                 f"Chat {self.chat.chat_id} is locked. Please try again later."
             )
         self._chat_lock_token = token
+        self._start_lock_watchdog()
         return True
 
     async def _release_chat_lock(self):
         """
-        Release the chat lock only if this session holds a valid lock token.
-        The underlying unlock() uses a Lua script for atomic compare-and-delete,
-        so even if the lock TTL expired and was re-acquired by another request,
-        this call will not delete the new lock.
+        Stop the lock renewal watchdog and release the chat lock only if this session
+        holds a valid lock token. The underlying unlock() uses a Lua script for atomic
+        compare-and-delete, so even if the lock TTL expired and was re-acquired by
+        another request, this call will not delete the new lock.
         Safe to call in finally blocks even if lock was never acquired.
         """
+        self._stop_lock_watchdog()
         if self.chat and self._chat_lock_token is not None:
             await self.chat.unlock(self._chat_lock_token)
             self._chat_lock_token = None

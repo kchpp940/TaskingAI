@@ -108,16 +108,16 @@ class Chat(ModelEntity):
     async def is_chat_locked(self) -> bool:
         return await redis_conn.get_string(key=self.__lock_redis_key()) is not None
 
-    async def lock(self) -> Optional[str]:
+    async def lock(self, ttl: int = 120) -> Optional[str]:
         """
-        Atomically acquire the chat lock.
+        Atomically acquire the chat lock with the given TTL (seconds).
         :return: lock owner token string if acquired, None if already locked
         """
         token = generate_random_id(32)
         acquired = await redis_conn.set_string_if_not_exists(
             key=self.__lock_redis_key(),
             value=token,
-            expire=120,
+            expire=ttl,
         )
         return token if acquired else None
 
@@ -129,3 +129,13 @@ class Chat(ModelEntity):
         :return: True if lock was released by this call, False if token didn't match or key didn't exist
         """
         return await redis_conn.delete_if_equals(key=self.__lock_redis_key(), value=token)
+
+    async def renew_lock(self, token: str, ttl: int = 120) -> bool:
+        """
+        Extend the chat lock TTL only if the provided token matches the current lock owner.
+        Uses a Lua script for atomic compare-and-expire.
+        :param token: the lock owner token returned by lock()
+        :param ttl: new TTL in seconds
+        :return: True if TTL was extended, False if token didn't match or key didn't exist
+        """
+        return await redis_conn.expire_if_equals(key=self.__lock_redis_key(), value=token, expire=ttl)

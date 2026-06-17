@@ -145,6 +145,34 @@ class RedisConnection:
             logger.error(f"delete_if_equals: error={e}")
             return False
 
+    async def expire_if_equals(self, key: str, value: str, expire: int) -> bool:
+        """
+        Atomically extend the TTL of the key only if its current value equals the given value.
+        Uses a Lua script to ensure atomicity – prevents renewing a lock owned by another request.
+        :param expire: new TTL in seconds
+        :return: True if TTL was extended, False if token didn't match or key didn't exist
+        """
+        if self.redis is None:
+            return False
+        script = """
+        if redis.call("GET", KEYS[1]) == ARGV[1] then
+            return redis.call("EXPIRE", KEYS[1], ARGV[2])
+        else
+            return 0
+        end
+        """
+        try:
+            result = await self.redis.eval(script, 1, key, value, str(expire))
+            renewed = result == 1
+            logger.debug(f"expire_if_equals: key={key}, renewed={renewed}")
+            return renewed
+        except asyncio.CancelledError:
+            logger.error(f"expire_if_equals: operation was cancelled, key={key}")
+            return False
+        except Exception as e:
+            logger.error(f"expire_if_equals: error={e}")
+            return False
+
     async def set_int(self, key: str, value: int, expire: int = 3600 * 4):
         if self.redis is None:
             return
