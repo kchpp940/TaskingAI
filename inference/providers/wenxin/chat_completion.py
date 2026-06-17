@@ -191,11 +191,8 @@ class WenxinChatCompletionModel(BaseChatCompletionModel):
     ) -> Optional[ChatCompletionFunctionCallsContent]:
         if chunk_data.get("function_call"):
             tool_call = chunk_data["function_call"]
-            function_calls_content.start_new_function_call(
-                index=function_calls_content.index + 1,
-                name=tool_call.get("name"),
-                initial_arguments=tool_call.get("arguments"),
-            )
+            function_calls_content.arguments_strs.append(tool_call["arguments"])
+            function_calls_content.names.append(tool_call["name"])
             return function_calls_content
 
         return None

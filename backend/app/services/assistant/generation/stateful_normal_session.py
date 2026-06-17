@@ -19,12 +19,13 @@ class StatefulNormalSession(Session):
 
     async def generate(self, system_prompt_variables: Dict):
         try:
+            await self._acquire_chat_lock()
+
             await self.prepare(
                 stream=False,
                 system_prompt_variables=system_prompt_variables,
                 retrieval_log=self.save_logs,
             )
-            await self.chat.lock()
 
             function_calls_round_index = 0
 
@@ -110,4 +111,4 @@ class StatefulNormalSession(Session):
             )
 
         finally:
-            await self.chat.unlock()
+            await self._release_chat_lock()

@@ -108,8 +108,8 @@ class Chat(ModelEntity):
     async def is_chat_locked(self):
         return await redis_conn.get_int(key=self.__lock_redis_key()) == 1
 
-    async def lock(self):
-        await redis_conn.set_int(key=self.__lock_redis_key(), value=1, expire=120)
+    async def lock(self) -> bool:
+        return await redis_conn.set_int_if_not_exists(key=self.__lock_redis_key(), value=1, expire=120)
 
     async def unlock(self):
         await redis_conn.pop(key=self.__lock_redis_key())

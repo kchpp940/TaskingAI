@@ -42,6 +42,9 @@ class Session(ABC):
         self.assistant: Assistant = assistant
         self.chat: Optional[Chat] = chat
 
+        # chat lock state – only true if this session successfully acquired the lock
+        self._chat_lock_acquired: bool = False
+
         # tools
         self.tool_dict: Dict[str, Tool] = {}
         self.tool_use_count: Dict[str, List[int]] = {}
@@ -117,12 +120,6 @@ class Session(ABC):
 
         if chat_completion_input_functions is not None and chat_completion_messages is None:
             raise ValueError("chat_completion_input_functions should be None when chat_completion_messages is None.")
-
-        # check chat lock
-        if self.chat and await self.chat.is_chat_locked():
-            raise MessageGenerationInvalidRequestException(
-                f"Chat {self.chat.chat_id} is locked. Please try again later."
-            )
 
         # Get model
         try:
@@ -455,3 +452,27 @@ class Session(ABC):
 
         else:
             return None
+
+    async def _acquire_chat_lock(self) -> bool:
+        """
+        Atomically acquire the chat lock. Raises MessageGenerationInvalidRequestException if already locked.
+        Sets self._chat_lock_acquired = True on success, so only the acquirer will release the lock.
+        """
+        if not self.chat:
+            raise ValueError("Chat is required to acquire lock.")
+        acquired = await self.chat.lock()
+        if not acquired:
+            raise MessageGenerationInvalidRequestException(
+                f"Chat {self.chat.chat_id} is locked. Please try again later."
+            )
+        self._chat_lock_acquired = True
+        return True
+
+    async def _release_chat_lock(self):
+        """
+        Release the chat lock only if this session successfully acquired it.
+        Safe to call in finally blocks even if lock was never acquired.
+        """
+        if self.chat and self._chat_lock_acquired:
+            await self.chat.unlock()
+            self._chat_lock_acquired = False

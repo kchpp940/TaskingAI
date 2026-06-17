@@ -22,7 +22,6 @@ __all__ = [
     "ChatCompletionFunctionCallsContent",
     "build_function_call",
     "generate_random_function_call_id",
-    "get_or_create_function_call_id",
 ]
 
 
@@ -40,58 +39,6 @@ class ChatCompletionFunctionCallsContent(object):
         # The names of the function call
         self.names: List[str] = []
 
-        # The ids of the function call
-        self.ids: List[str] = []
-
-    def start_new_function_call(
-        self,
-        index: int,
-        name: str,
-        initial_arguments: str = "",
-        initial_arguments_dict: Optional[Dict] = None,
-        tool_call_id: Optional[str] = None,
-    ) -> None:
-        """
-        Start a new function call at the given index.
-        Atomically appends name, arguments_strs / arguments_dicts, ids together to avoid index misalignment.
-        Updates the current internal index pointer.
-        """
-        self.arguments_strs.append(initial_arguments or "")
-        self.arguments_dicts.append(initial_arguments_dict or {})
-        self.names.append(name or "")
-        self.ids.append(get_or_create_function_call_id(tool_call_id))
-        self.index = index
-
-    def append_to_current(self, arguments_fragment: str) -> None:
-        """
-        Append arguments fragment (string) to the current (active) function call.
-        Uses the current internal index pointer.
-        """
-        if self.index >= 0 and self.index < len(self.arguments_strs):
-            self.arguments_strs[self.index] += arguments_fragment or ""
-
-    def append_to_index(self, index: int, arguments_fragment: str) -> None:
-        """
-        Append arguments fragment (string) to the function call at the specified index.
-        """
-        if index >= 0 and index < len(self.arguments_strs):
-            self.arguments_strs[index] += arguments_fragment or ""
-
-    def append_dict_to_current(self, arguments_dict: Optional[Dict]) -> None:
-        """
-        Merge arguments dict into the current (active) function call's arguments_dicts.
-        Uses the current internal index pointer.
-        """
-        if self.index >= 0 and self.index < len(self.arguments_dicts) and arguments_dict:
-            self.arguments_dicts[self.index].update(arguments_dict)
-
-    def append_dict_to_index(self, index: int, arguments_dict: Optional[Dict]) -> None:
-        """
-        Merge arguments dict into the function call at the specified index.
-        """
-        if index >= 0 and index < len(self.arguments_dicts) and arguments_dict:
-            self.arguments_dicts[index].update(arguments_dict)
-
 
 def generate_random_function_call_id():
     """
@@ -101,23 +48,10 @@ def generate_random_function_call_id():
     return "P3lf" + generate_random_id(20)
 
 
-def get_or_create_function_call_id(tool_call_id: Optional[str] = None) -> str:
-    """
-    Get the tool call ID if provided, otherwise generate a new one.
-    Ensures a valid, non-empty function call ID is always returned.
-    :param tool_call_id: The original tool call ID from the provider response.
-    :return: The original ID if valid, otherwise a newly generated ID.
-    """
-    if tool_call_id and isinstance(tool_call_id, str) and tool_call_id.strip():
-        return tool_call_id.strip()
-    return generate_random_function_call_id()
-
-
 def build_function_call(
     name: str,
     arguments_str: str = None,
     arguments_dict: Dict = None,
-    id: str = None,
 ) -> ChatCompletionFunctionCall:
     """
     Build a function call from the name and arguments.
@@ -134,7 +68,7 @@ def build_function_call(
         except json.decoder.JSONDecodeError:
             raise_provider_api_error(error_msg)
     return ChatCompletionFunctionCall(
-        id=get_or_create_function_call_id(id),
+        id=generate_random_function_call_id(),
         name=name,
         arguments=arguments_dicts,
     )
@@ -342,12 +276,10 @@ class BaseChatCompletionModel(ABC):
             for i, name in enumerate(function_calls_content.names):
                 strs = function_calls_content.arguments_strs
                 dicts = function_calls_content.arguments_dicts
-                ids = function_calls_content.ids
                 function_call = build_function_call(
                     name=name,
                     arguments_str=strs[i] if strs else None,
                     arguments_dict=dicts[i] if dicts else None,
-                    id=ids[i] if ids and i < len(ids) else None,
                 )
                 function_calls.append(function_call)
             finish_reason = ChatCompletionFinishReason.function_calls

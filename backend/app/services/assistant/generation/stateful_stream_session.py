@@ -32,12 +32,13 @@ class StatefulStreamSession(Session):
 
     async def stream_generate(self, system_prompt_variables: Dict):
         try:
+            await self._acquire_chat_lock()
+
             await self.prepare(
                 stream=self.stream,
                 system_prompt_variables=system_prompt_variables,
                 retrieval_log=self.debug or self.save_logs,
             )
-            await self.chat.lock()
 
             if self.debug and self.logs:
                 for log_dict in self.logs:
@@ -183,4 +184,4 @@ class StatefulStreamSession(Session):
             yield SSE_DONE_MSG
 
         finally:
-            await self.chat.unlock()
+            await self._release_chat_lock()
