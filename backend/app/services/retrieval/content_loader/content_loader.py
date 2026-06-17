@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import shutil
+import uuid
 from typing import Optional
 import aiofiles.os
 from fastapi import HTTPException
@@ -34,20 +35,29 @@ _bucket_name = CONFIG.S3_BUCKET_NAME
 _record_file_base_dir = CONFIG.PATH_TO_VOLUME + "/tmp/record_file"
 
 
-async def _record_work_dir(file_id: str) -> str:
-    work_dir = os.path.join(_record_file_base_dir, file_id)
-    await aiofiles.os.makedirs(work_dir, exist_ok=True)
+def _is_safe_work_dir(work_dir: str) -> bool:
+    try:
+        return os.path.commonpath([_record_file_base_dir, work_dir]) == os.path.abspath(_record_file_base_dir)
+    except ValueError:
+        return False
+
+
+async def _create_record_work_dir(file_id: str) -> str:
+    attempt_id = uuid.uuid4().hex
+    work_dir = os.path.join(_record_file_base_dir, file_id, attempt_id)
+    await aiofiles.os.makedirs(work_dir, exist_ok=False)
     return work_dir
 
 
 async def download_record_file(project_id: str, file_id: str) -> str:
     """
-    Download record file from MinIO/S3 into an isolated working directory keyed by file_id.
+    Download record file from MinIO/S3 into an isolated working directory
+    keyed by file_id + unique attempt uuid.
     :param project_id: the project id
     :param file_id: the file id
     :return: the local file path
     """
-    work_dir = await _record_work_dir(file_id)
+    work_dir = await _create_record_work_dir(file_id)
 
     file_url = boto3_client.get_file_url(_bucket_name, UploadFilePurpose.RECORD_FILE.value, file_id, project_id)
     raw_name = file_url.split("/")[-1]
@@ -72,18 +82,22 @@ async def download_record_file(project_id: str, file_id: str) -> str:
 
 def cleanup_record_workdir(local_file_path: str) -> None:
     """
-    Remove the isolated working directory for the current import.
-    Only deletes the per-file_id subdirectory, never touches siblings.
+    Remove the isolated working directory for the current import attempt.
+    Verifies the directory is safely nested under the base directory using
+    os.path.commonpath before deletion.
     :param local_file_path: the local file path returned by download_record_file
     """
     work_dir = os.path.dirname(local_file_path)
-    if work_dir.startswith(_record_file_base_dir) and work_dir != _record_file_base_dir:
+    if _is_safe_work_dir(work_dir):
         shutil.rmtree(work_dir, ignore_errors=True)
         logger.debug(f"Cleaned up record work directory: {work_dir}")
+    elif _is_safe_work_dir(os.path.dirname(work_dir)):
+        shutil.rmtree(work_dir, ignore_errors=True)
+        logger.debug(f"Cleaned up record work directory (fallback): {work_dir}")
     else:
-        if os.path.exists(local_file_path):
-            os.remove(local_file_path)
-            logger.debug(f"Removed local record file: {local_file_path}")
+        logger.warning(
+            f"Skipping cleanup for {work_dir}: outside allowed base directory {_record_file_base_dir}"
+        )
 
 
 async def delete_record_file_remote(project_id: str, file_id: str) -> None:
