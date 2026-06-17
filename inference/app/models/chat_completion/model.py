@@ -22,6 +22,7 @@ __all__ = [
     "ChatCompletionFunctionCallsContent",
     "build_function_call",
     "generate_random_function_call_id",
+    "get_or_create_function_call_id",
 ]
 
 
@@ -51,6 +52,18 @@ def generate_random_function_call_id():
     return "P3lf" + generate_random_id(20)
 
 
+def get_or_create_function_call_id(tool_call_id: Optional[str] = None) -> str:
+    """
+    Get the tool call ID if provided, otherwise generate a new one.
+    Ensures a valid, non-empty function call ID is always returned.
+    :param tool_call_id: The original tool call ID from the provider response.
+    :return: The original ID if valid, otherwise a newly generated ID.
+    """
+    if tool_call_id and isinstance(tool_call_id, str) and tool_call_id.strip():
+        return tool_call_id.strip()
+    return generate_random_function_call_id()
+
+
 def build_function_call(
     name: str,
     arguments_str: str = None,
@@ -72,7 +85,7 @@ def build_function_call(
         except json.decoder.JSONDecodeError:
             raise_provider_api_error(error_msg)
     return ChatCompletionFunctionCall(
-        id=id or generate_random_function_call_id(),
+        id=get_or_create_function_call_id(id),
         name=name,
         arguments=arguments_dicts,
     )
