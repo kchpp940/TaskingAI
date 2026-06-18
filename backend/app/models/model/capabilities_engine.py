@@ -126,17 +126,25 @@ def _normalise_legacy_properties(props: Optional[Dict[str, Any]]) -> Dict[str, A
 
 
 def _derive_from_config_schemas(config_schemas: Any) -> Dict[str, Any]:
-    hints: Dict[str, Any] = {}
+    """
+    Extract hints from config_schemas.
+
+    Having ``response_format`` in config_schemas means the provider implements
+    *some* response format handling, but does NOT guarantee json_schema support.
+    Many models only support plain text or ``json_object``.  Therefore this
+    function returns an **empty** hints dict — the response_format presence
+    is recorded separately for warning/suggestion output instead.
+    """
+    return {}
+
+
+def _has_response_format_config(config_schemas: Any) -> bool:
     if not isinstance(config_schemas, list):
-        return hints
-    config_ids: set = set()
+        return False
     for cs in config_schemas:
-        if isinstance(cs, dict) and isinstance(cs.get("config_id"), str):
-            config_ids.add(cs["config_id"])
-    if "response_format" in config_ids:
-        hints["json_schema"] = True
-        hints["supported_response_formats"] = [_TEXT, _JSON_OBJECT, _JSON_SCHEMA]
-    return hints
+        if isinstance(cs, dict) and cs.get("config_id") == "response_format":
+            return True
+    return False
 
 
 def _provider_suggestions(provider_id: str, model_type: str) -> Dict[str, Any]:
@@ -179,14 +187,16 @@ def derive_model_capabilities(
       1. schema_capabilities from inference (already resolved authoritatively)
       2. User-supplied model-level properties (wildcard override)
       3. Schema-level legacy properties
-      4. config_schemas derivation (reliable heuristic)
+      4. If supported_response_formats contains "json_schema" → json_schema=True
       5. Provider suggestions — **only ``stream`` is auto-enabled**;
          high-risk fields (tools, vision, json_schema) from provider
          suggestions are recorded for warning output but NOT used.
+         Having ``response_format`` in config_schemas is also a suggestion
+         for json_schema, not a reliable source.
       6. Safe fallback defaults
     """
 
-    # --- Collect all explicit/reliable sources (rules 1-4) ---
+    # --- Collect all explicit/reliable sources (rules 1-3) ---
     reliable: Dict[str, Any] = {}
     for k, v in (schema_capabilities or {}).items():
         if v is not None:
@@ -197,15 +207,25 @@ def derive_model_capabilities(
     for k, v in _normalise_legacy_properties(schema_properties).items():
         if v is not None:
             reliable[k] = v
-    for k, v in _derive_from_config_schemas(config_schemas).items():
-        if v is not None:
-            reliable[k] = v
 
-    # --- Provider suggestions (rule 5) ---
+    # Rule 4: supported_response_formats containing "json_schema" IS reliable
+    if (
+        not reliable.get("json_schema")
+        and isinstance(reliable.get("supported_response_formats"), list)
+        and _JSON_SCHEMA in reliable["supported_response_formats"]
+    ):
+        reliable["json_schema"] = True
+
+    # --- Provider / config suggestions (rule 5) ---
+    has_rf_cfg = _has_response_format_config(config_schemas)
     suggestions = _provider_suggestions(provider_id, model_type or "chat_completion")
 
+    # Merge response_format config hint into suggestions
+    if has_rf_cfg and not suggestions.get("json_schema"):
+        suggestions["json_schema"] = True
+        suggestions["supported_response_formats"] = [_TEXT, _JSON_OBJECT, _JSON_SCHEMA]
+
     # --- Build final capabilities ---
-    # stream: low-risk → provider suggestion IS used as fallback
     out: Dict[str, Any] = {}
 
     out["stream"] = bool(reliable.get("stream", suggestions.get("stream", False)))
@@ -247,14 +267,24 @@ def derive_model_capabilities(
                 "provider_id": provider_id,
                 "capabilities": out,
             }
+            if has_rf_cfg:
+                payload["has_response_format_config"] = True
             if suggested_not_enabled:
                 payload["suggested_but_not_enabled"] = suggested_not_enabled
-                payload["action_needed"] = (
-                    "The following capabilities are likely supported by this "
-                    "provider but were not explicitly declared. Add them to the "
-                    "YAML properties to enable: "
-                    + ", ".join(suggested_not_enabled.keys())
+                action_parts = []
+                action_parts.append(
+                    "The following capabilities are likely supported but "
+                    "were not explicitly declared. Add them to the YAML "
+                    "properties to enable: " + ", ".join(suggested_not_enabled.keys())
                 )
+                if has_rf_cfg:
+                    action_parts.append(
+                        "This model has a `response_format` config_schema. "
+                        "If it supports json_schema, add `json_schema: true` "
+                        "and `supported_response_formats: [text, json_object, json_schema]` "
+                        "to its properties."
+                    )
+                payload["action_needed"] = " ".join(action_parts)
             logger.debug(
                 "backend capabilities derived: " + str(payload)
             )
