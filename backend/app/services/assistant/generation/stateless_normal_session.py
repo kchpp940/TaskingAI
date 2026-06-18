@@ -109,6 +109,14 @@ class StatelessNormalSession(Session):
             response_dict["usage"]["input_tokens"] = self.total_input_tokens
             response_dict["usage"]["output_tokens"] = self.total_output_tokens
 
+            # add artifacts to message content
+            if self.message_artifacts:
+                if "message" in response_dict:
+                    if "content" not in response_dict["message"]:
+                        response_dict["message"]["content"] = ""
+                artifacts_data = [a.model_dump() for a in self.message_artifacts]
+                response_dict["message"]["artifacts"] = artifacts_data
+
             # todo: save logs
             return ChatCompletionResponse(data=response_dict)
 

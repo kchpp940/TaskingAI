@@ -12,6 +12,7 @@ from app.models import (
     Tool,
     ToolInput,
     ToolOutput,
+    Artifact,
     ChatCompletionAnyMessage,
     ChatCompletionFunction,
     ChatCompletionRole,
@@ -76,11 +77,14 @@ class Session(ABC):
         self.logs = []
         self.save_logs = save_logs
 
+        # artifacts collected from tool outputs
+        self.message_artifacts: List[Artifact] = []
+
         # trace collector
         self.trace_collector = TraceCollector()
         self.session_start_timestamp = current_timestamp_int_milliseconds()
 
-    async def create_assistant_message(self, content_text: str, logs: List[Dict] = None):
+    async def create_assistant_message(self, content_text: str, logs: List[Dict] = None, artifacts: List[Artifact] = None):
         if not self.chat:
             raise MessageGenerationInvalidRequestException("Chat is required to create a message.")
         return await message_ops.create(
@@ -88,7 +92,7 @@ class Session(ABC):
             chat_id=self.chat.chat_id,
             create_dict={
                 "role": MessageRole.ASSISTANT.value,
-                "content": MessageContent(text=content_text),
+                "content": MessageContent(text=content_text, artifacts=artifacts or []),
                 "metadata": {},
                 "logs": logs,
             },
@@ -427,6 +431,10 @@ class Session(ABC):
             tool_outputs: List[ToolOutput] = await run_tools(tool_inputs)
             for tool_output in tool_outputs:
                 self.chat_completion_messages.append(tool_output.to_function_message())
+
+                # collect artifacts from tool outputs
+                if tool_output.artifacts:
+                    self.message_artifacts.extend(tool_output.artifacts)
 
                 # Logging for other tools
                 if log:

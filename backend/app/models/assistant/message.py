@@ -1,4 +1,4 @@
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from pydantic import Field, BaseModel
 from enum import Enum
 import logging
@@ -12,7 +12,26 @@ from tkhelper.schemas.field import *
 from .assistant import Assistant
 from .chat import Chat
 
-__all__ = ["Message", "MessageRole", "MessageContent", "MessageGenerationLog"]
+__all__ = ["Message", "MessageRole", "MessageContent", "MessageGenerationLog", "Artifact", "ArtifactType"]
+
+
+class ArtifactType(str, Enum):
+    TEXT = "text"
+    IMAGE = "image"
+    FILE = "file"
+    JSON = "json"
+    TABLE = "table"
+
+
+class Artifact(BaseModel):
+    type: ArtifactType = Field(..., description="The type of the artifact.")
+    mime_type: str = Field("text/plain", description="The MIME type of the artifact.")
+    title: Optional[str] = Field(None, description="The title or name of the artifact.")
+    content: Optional[Any] = Field(None, description="The inline content of the artifact, for text/json/table types.")
+    preview_url: Optional[str] = Field(None, description="The URL for previewing the artifact.")
+    download_url: Optional[str] = Field(None, description="The URL for downloading the artifact.")
+    size: Optional[int] = Field(None, description="The size of the artifact in bytes.")
+    metadata: Optional[Dict[str, Any]] = Field(None, description="Additional metadata for the artifact.")
 
 
 class MessageRole(str, Enum):
@@ -52,8 +71,7 @@ class MessageContent(BaseModel):
     """
 
     text: str = Field(..., description="The text content of the message.", examples=["Hello!"])
-
-    # todo: support more content type, i.e. file, image, etc.
+    artifacts: List[Artifact] = Field([], description="List of artifacts associated with the message.")
 
 
 class Message(ModelEntity):

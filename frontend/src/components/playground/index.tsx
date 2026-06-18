@@ -272,13 +272,27 @@ function Playground() {
             item.color = 'green'
             str += item.delta
             updatedGroupedMessages.content.text[updatedGroupedMessages.content.text.length - 1].event += str;
-        } else if (item.object === 'Message' && checkBoxValue1.indexOf(1) === -1 && checkBoxValue1.indexOf(2) !== -1) {
-            updatedGroupedMessages.content.text[updatedGroupedMessages.content.text.length - 1].event = item.content.text;
+        } else if (item.object === 'Message') {
+            // Extract text content for non-stream debug mode
+            if (checkBoxValue1.indexOf(1) === -1 && checkBoxValue1.indexOf(2) !== -1) {
+                updatedGroupedMessages.content.text[updatedGroupedMessages.content.text.length - 1].event = item.content?.text || '';
+            }
+            // Extract artifacts from final Message object
+            if (item.content?.artifacts?.length > 0) {
+                if (!updatedGroupedMessages.content.artifacts) {
+                    updatedGroupedMessages.content.artifacts = [];
+                }
+                updatedGroupedMessages.content.artifacts = item.content.artifacts;
+            }
         } else if (item.object === 'Error') {
             setErrorContent(JSON.stringify(item, null, 4))
             setGenerateButtonLoading(false)
             setLottieAnimShow(false)
             updatedGroupedMessages.content.text[updatedGroupedMessages.content.text.length - 1].event = 'Error Occurred';
+        }
+        // Ensure artifacts array exists
+        if (!updatedGroupedMessages.content.artifacts) {
+            updatedGroupedMessages.content.artifacts = [];
         }
         return updatedGroupedMessages;
     }
@@ -427,10 +441,15 @@ function Playground() {
         setModalTableOpen(value)
     }
     const combineObjectsWithSameMsgId = (arr: any[]) => {
-        let groupedMessages = { role: 'Assistant', content: { text: '' } };
+        let groupedMessages = { role: 'Assistant', content: { text: '', artifacts: [] as any[] } };
         arr.forEach((item) => {
             if (item.object === 'MessageChunk') {
                 groupedMessages.content.text += item.delta
+            }
+            if (item.object === 'Message') {
+                if (item.content?.artifacts?.length > 0) {
+                    groupedMessages.content.artifacts = item.content.artifacts
+                }
             }
         });
         return groupedMessages
@@ -860,10 +879,12 @@ function Playground() {
             try {
                 const res = await generateMessage(id, chatId, params)
                 const { data } = res
+                const artifacts = data.content.artifacts || []
                 setContentTalk(prevValues => [...prevValues, {
                     role: 'Assistant',
                     content: {
-                        text: data.content.text
+                        text: data.content.text,
+                        artifacts: artifacts
                     },
                     userId: false,
                     flag: true
@@ -872,7 +893,8 @@ function Playground() {
                 localStorage.setItem('contentTalk', JSON.stringify([...JSON.parse(contentTalk1), {
                     role: 'Assistant',
                     content: {
-                        text: data.content.text
+                        text: data.content.text,
+                        artifacts: artifacts
                     },
                     userId: false,
                     flag: true
@@ -906,10 +928,28 @@ function Playground() {
             );
         } else if (!stream && debug) {
             let arr1: any = []
+            let finalArtifacts: any[] = []
             source?.addEventListener("message", (e: any) => {
                 if (e.data === '[DONE]') {
                     setGenerateButtonLoading(false)
                     setSendGenerateLoading(false)
+                    // Update the last message with artifacts
+                    if (finalArtifacts.length > 0) {
+                        setContentTalk(prevValues => {
+                            const updated = [...prevValues];
+                            if (updated.length > 0) {
+                                updated[updated.length - 1] = {
+                                    ...updated[updated.length - 1],
+                                    content: {
+                                        ...updated[updated.length - 1].content,
+                                        artifacts: finalArtifacts
+                                    }
+                                };
+                                localStorage.setItem('contentTalk', JSON.stringify(updated));
+                            }
+                            return updated;
+                        });
+                    }
                     return
                 }
                 const data = JSON.parse(e.data)
@@ -920,6 +960,16 @@ function Playground() {
                         return updatedValues;
                     });
                 }
+                // Extract artifacts from tool output logs
+                if (data.object === 'MessageGenerationLog' && data.event_step === 'output' && data.event?.toLowerCase().includes('tool')) {
+                    if (data.content?.artifacts?.length > 0) {
+                        finalArtifacts = [...finalArtifacts, ...data.content.artifacts];
+                    }
+                }
+                // Extract artifacts from final Message object
+                if (data.object === 'Message' && data.content?.artifacts?.length > 0) {
+                    finalArtifacts = data.content.artifacts;
+                }
                 arr1.push(data)
                 const binedArr = [...contentTalk, combineObjects(data, arr1)]
                 setContentTalk(binedArr)
@@ -928,10 +978,28 @@ function Playground() {
             })
         } else {
             let arr1: any = []
+            let finalArtifacts: any[] = []
             source?.addEventListener("message", (e: any) => {
                 if (e.data === '[DONE]') {
                     setGenerateButtonLoading(false)
                     setSendGenerateLoading(false)
+                    // Update the last message with artifacts
+                    if (finalArtifacts.length > 0) {
+                        setContentTalk(prevValues => {
+                            const updated = [...prevValues];
+                            if (updated.length > 0) {
+                                updated[updated.length - 1] = {
+                                    ...updated[updated.length - 1],
+                                    content: {
+                                        ...updated[updated.length - 1].content,
+                                        artifacts: finalArtifacts
+                                    }
+                                };
+                                localStorage.setItem('contentTalk', JSON.stringify(updated));
+                            }
+                            return updated;
+                        });
+                    }
                     return
                 }
                 const data = JSON.parse(e.data)
@@ -943,6 +1011,16 @@ function Playground() {
                         return updatedValues;
                     });
                 }
+                // Extract artifacts from tool output logs
+                if (data.object === 'MessageGenerationLog' && data.event_step === 'output' && data.event?.toLowerCase().includes('tool')) {
+                    if (data.content?.artifacts?.length > 0) {
+                        finalArtifacts = [...finalArtifacts, ...data.content.artifacts];
+                    }
+                }
+                // Extract artifacts from final Message object
+                if (data.object === 'Message' && data.content?.artifacts?.length > 0) {
+                    finalArtifacts = data.content.artifacts;
+                }
                 arr1.push(data)
                 const binedArr = [...contentTalk, combineObjects(data, arr1)]
                 setContentTalk(binedArr)
@@ -952,7 +1030,7 @@ function Playground() {
         }
         setGroupedMessages({
             role: 'Assistant',
-            content: { text: [{ event: '', color: '', event_id: '' }] },
+            content: { text: [{ event: '', color: '', event_id: '' }], artifacts: [] },
             useId: 'user'
         })
 
@@ -1542,6 +1620,11 @@ function Playground() {
                                                     )
 
                                                 }</div>))}</div>}
+                                            {item.role === 'Assistant' && item.content.artifacts && item.content.artifacts.length > 0 && (
+                                                <div className={styles['artifact-container']} style={{ marginTop: '12px' }}>
+                                                    <ArtifactRenderer artifacts={item.content.artifacts} />
+                                                </div>
+                                            )}
                                         </div>
                                     ))}
                                 </div>
