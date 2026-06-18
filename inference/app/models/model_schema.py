@@ -3,6 +3,7 @@ from pydantic import BaseModel, ValidationError
 from typing import Dict, Optional, List, Tuple
 from .utils import i18n_text
 from .base import BaseModelProperties, BaseModelPricing, ModelCapabilities
+from .capabilities_engine import derive_capabilities
 from app.error import raise_http_error, ErrorCode
 from .model_config import load_config
 import warnings
@@ -33,25 +34,40 @@ class ModelSchema(BaseModel):
     config_schemas: List[Dict]
     pricing: Optional[BaseModelPricing]
 
-    def get_capabilities(self) -> ModelCapabilities:
-        """
-        Get the unified capabilities declaration for this model schema.
-        Works for all model types — chat_completion, text_embedding, rerank, wildcard.
-        """
-        from .chat_completion import ChatCompletionModelProperties
+    # runtime cache for derived capabilities — populated once per schema
+    _capabilities_cache: Optional[Tuple[ModelCapabilities, Dict[str, str]]] = None
 
-        if self.type in (ModelType.CHAT_COMPLETION, ModelType.WILDCARD) and self.properties is not None:
-            if isinstance(self.properties, ChatCompletionModelProperties):
-                return self.properties.to_capabilities()
+    def get_capabilities(self, emit_warnings: bool = True) -> ModelCapabilities:
+        """
+        Get the unified capabilities declaration for this model schema,
+        resolved through the centralized :func:`derive_capabilities` engine.
 
-        # Default capabilities for non-chat models or when properties not set
-        caps = ModelCapabilities()
+        Priority (highest first):
+          1. explicit properties in YAML (streaming/function_call/vision/json_schema/...)
+          2. derived from ``config_schemas`` (e.g. response_format → json_schema)
+          3. provider-level defaults (OpenAI-compat → stream, tool-calling providers → tools)
+          4. safe fallback defaults (bools → False, formats → ["text"])
+        """
+        if self._capabilities_cache is not None:
+            caps, _ = self._capabilities_cache
+            return caps
+
+        props_dict = None
         if self.properties is not None:
-            props_dict = self.properties.model_dump(exclude_none=True)
-            if "input_token_limit" in props_dict:
-                caps.max_context_tokens = props_dict["input_token_limit"]
-            if "output_token_limit" in props_dict:
-                caps.max_output_tokens = props_dict["output_token_limit"]
+            try:
+                props_dict = self.properties.model_dump(exclude_none=True)
+            except Exception:
+                props_dict = None
+
+        caps, sources = derive_capabilities(
+            provider_id=self.provider_id,
+            model_schema_id=self.model_schema_id,
+            model_type=self.type.value,
+            explicit_properties=props_dict,
+            config_schemas=self.config_schemas,
+            emit_warnings=emit_warnings,
+        )
+        self._capabilities_cache = (caps, sources)
         return caps
 
     def allow_stream(self):

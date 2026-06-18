@@ -1,6 +1,14 @@
 from enum import Enum
 from pydantic import BaseModel
 from typing import Dict, Optional, List
+from .capabilities_engine import (
+    derive_model_capabilities,
+    allow_stream as caps_allow_stream,
+    allow_tools as caps_allow_tools,
+    allow_vision as caps_allow_vision,
+    allow_json_schema as caps_allow_json_schema,
+    supports_response_format as caps_supports_response_format,
+)
 
 __all__ = ["ModelType", "ModelSchema"]
 
@@ -27,49 +35,40 @@ class ModelSchema(BaseModel):
     config_schemas: List[Dict]
     pricing: Optional[Dict]
 
+    def get_capabilities(self) -> Dict:
+        """
+        Returns unified capabilities dict derived through the centralized
+        backend engine. Priority (highest first):
+
+          1. schema-level ``capabilities`` from inference response
+          2. schema-level legacy ``properties`` (streaming/function_call/...)
+          3. config_schemas heuristic (response_format → json_schema)
+          4. provider-level defaults
+          5. safe fallback defaults
+        """
+        return derive_model_capabilities(
+            provider_id=self.provider_id,
+            model_schema_id=self.model_schema_id,
+            model_type=self.type.value if hasattr(self.type, "value") else str(self.type),
+            schema_capabilities=self.capabilities,
+            schema_properties=self.properties,
+            config_schemas=self.config_schemas,
+        )
+
     def allow_stream(self) -> bool:
-        if self.capabilities:
-            return bool(self.capabilities.get("stream", False))
-        return bool(self.properties and self.properties.get("streaming", False))
+        return caps_allow_stream(self.get_capabilities())
 
     def allow_function_call(self) -> bool:
-        if self.capabilities:
-            return bool(self.capabilities.get("tools", False))
-        return bool(self.properties and self.properties.get("function_call", False))
+        return caps_allow_tools(self.get_capabilities())
 
     def allow_vision_input(self) -> bool:
-        if self.capabilities:
-            return bool(self.capabilities.get("vision", False))
-        return bool(self.properties and self.properties.get("vision", False))
+        return caps_allow_vision(self.get_capabilities())
 
     def allow_json_schema(self) -> bool:
-        if self.capabilities:
-            return bool(self.capabilities.get("json_schema", False))
-        return bool(self.properties and self.properties.get("json_schema", False))
-
-    def get_capabilities(self) -> Dict:
-        """Return capabilities dict, constructing from legacy properties if missing."""
-        if self.capabilities:
-            return self.capabilities
-        caps = {}
-        props = self.properties or {}
-        caps["stream"] = props.get("streaming", False)
-        caps["tools"] = props.get("function_call", False)
-        caps["vision"] = props.get("vision", False)
-        caps["json_schema"] = props.get("json_schema", False)
-        if "input_token_limit" in props:
-            caps["max_context_tokens"] = props["input_token_limit"]
-        if "output_token_limit" in props:
-            caps["max_output_tokens"] = props["output_token_limit"]
-        caps["supported_response_formats"] = props.get(
-            "supported_response_formats", ["text"]
-        )
-        if caps["json_schema"] and "json_schema" not in caps["supported_response_formats"]:
-            caps["supported_response_formats"] = [*caps["supported_response_formats"], "json_schema"]
-        return caps
+        return caps_allow_json_schema(self.get_capabilities())
 
     def supports_response_format(self, fmt: str) -> bool:
-        return fmt in self.get_capabilities().get("supported_response_formats", [])
+        return caps_supports_response_format(self.get_capabilities(), fmt)
 
     @staticmethod
     def object_name():

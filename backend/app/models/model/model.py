@@ -2,6 +2,14 @@ from typing import Dict, List, Optional
 from pydantic import BaseModel
 from tkhelper.models import ModelEntity
 from tkhelper.utils import generate_random_id, load_json_attr
+from .capabilities_engine import (
+    derive_model_capabilities,
+    allow_stream as caps_allow_stream,
+    allow_tools as caps_allow_tools,
+    allow_vision as caps_allow_vision,
+    allow_json_schema as caps_allow_json_schema,
+    supports_response_format as caps_supports_response_format,
+)
 
 __all__ = ["Model", "ModelFallback", "ModelFallbackConfig"]
 
@@ -43,36 +51,28 @@ class Model(ModelEntity):
 
     def get_capabilities(self) -> Dict:
         """
-        Get unified capabilities declaration.
-        Merges model_schema declared capabilities with model-level properties overrides.
+        Get unified capabilities declaration for this specific Model instance.
+
+        Priority (highest first, identical to inference derive_capabilities()
+        plus model-level override layer):
+
+          1. schema-level ``capabilities`` (from inference)
+          2. model-level ``properties`` (user-filled for wildcard/custom models)
+          3. schema-level legacy ``properties``
+          4. config_schemas heuristic
+          5. provider defaults
+          6. safe defaults
         """
         schema = self.model_schema()
-        schema_caps = schema.get_capabilities() if schema else {}
-
-        # model-level properties can override schema defaults (wildcard models)
-        props = self.properties or {}
-        caps = dict(schema_caps)
-
-        if props.get("streaming") is not None:
-            caps["stream"] = bool(props["streaming"])
-        if props.get("function_call") is not None:
-            caps["tools"] = bool(props["function_call"])
-        if props.get("vision") is not None:
-            caps["vision"] = bool(props["vision"])
-        if props.get("json_schema") is not None:
-            caps["json_schema"] = bool(props["json_schema"])
-        if props.get("input_token_limit") is not None:
-            caps["max_context_tokens"] = props["input_token_limit"]
-        if props.get("output_token_limit") is not None:
-            caps["max_output_tokens"] = props["output_token_limit"]
-        if props.get("supported_response_formats") is not None:
-            caps["supported_response_formats"] = props["supported_response_formats"]
-        if caps.get("json_schema") and "json_schema" not in caps.get("supported_response_formats", []):
-            caps["supported_response_formats"] = [
-                *caps.get("supported_response_formats", ["text"]),
-                "json_schema",
-            ]
-        return caps
+        return derive_model_capabilities(
+            provider_id=self.provider_id,
+            model_schema_id=self.model_schema_id,
+            model_type=self.type or (schema.type.value if schema and hasattr(schema.type, "value") else str(schema.type)),
+            schema_capabilities=(schema.capabilities if schema else None),
+            model_properties=self.properties,
+            schema_properties=(schema.properties if schema else None),
+            config_schemas=(schema.config_schemas if schema else None),
+        )
 
     def is_chat_completion(self):
         return self.type == "chat_completion"
@@ -87,19 +87,19 @@ class Model(ModelEntity):
         return self.provider_id == "custom_host"
 
     def allow_function_call(self):
-        return self.get_capabilities().get("tools", False)
+        return caps_allow_tools(self.get_capabilities())
 
     def allow_streaming(self):
-        return self.get_capabilities().get("stream", False)
+        return caps_allow_stream(self.get_capabilities())
 
     def allow_vision_input(self):
-        return self.get_capabilities().get("vision", False)
+        return caps_allow_vision(self.get_capabilities())
 
     def allow_json_schema(self):
-        return self.get_capabilities().get("json_schema", False)
+        return caps_allow_json_schema(self.get_capabilities())
 
     def supports_response_format(self, fmt: str) -> bool:
-        return fmt in self.get_capabilities().get("supported_response_formats", [])
+        return caps_supports_response_format(self.get_capabilities(), fmt)
 
     @classmethod
     def build(cls, row: Dict):
