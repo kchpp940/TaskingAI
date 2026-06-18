@@ -8,7 +8,6 @@ import type { GetProp, UploadProps } from 'antd';
 import { toast } from 'react-toastify';
 import { getPluginList } from '../../axios/plugin.ts'
 import CreatePlugin from '../createPlugin/index.tsx';
-import TracePanel from '../tracePanel/index.tsx'
 import { setPlaygroundSelect, setPlaygroundAssistantId, } from '@/Redux/actions/playground.ts'
 import PlaygroundModel from '../playgroundModel/index.tsx';
 import CopyOutlined from '../../assets/img/copyIcon.svg?react'
@@ -135,9 +134,6 @@ function Playground() {
     const [loadMoreHasMore, setLoadMoreHasMore] = useState(false)
     const [debugArray1, setDebugArray1] = useState<any[]>([])
     const [debugArray2, setDebugArray2] = useState<any[]>([])
-    const [traceEvents, setTraceEvents] = useState<any[]>([])
-    const [tracePanelVisible, setTracePanelVisible] = useState(false)
-    const [debugEnabled, setDebugEnabled] = useState(false)
     const [lottieAnimShow, setLottieAnimShow] = useState(false)
     const [contentDrawer, setContentDrawer] = useState(false)
     const [contentErrorDrawer, setContentErrorDrawer] = useState(false)
@@ -161,6 +157,9 @@ function Playground() {
     const [topk, setTopk] = useState(3)
     const [maxTokens, setMaxToken] = useState(4096)
     const [pluginModalOpen, setPluginModalOpen] = useState(false)
+    const [tracePanelOpen, setTracePanelOpen] = useState(false)
+    const [traceEvents, setTraceEvents] = useState<any[]>([])
+    const [selectedTraceEvent, setSelectedTraceEvent] = useState<any>(null)
 
     const handleCopy = (text: string) => {
         const clipboard = new ClipboardJS('.icon-copy', {
@@ -251,13 +250,7 @@ function Playground() {
         let updatedGroupedMessages = { ...groupedMessages };
         let str = ''
         const checkBoxValue1 = JSON.parse(localStorage.getItem('checkedValues') as string) || [1, 2]
-        if (item.object === 'TraceEvent') {
-            if (debugEnabled) {
-                setTraceEvents(prev => [...prev, item])
-                setTracePanelVisible(true)
-            }
-            return updatedGroupedMessages;
-        } else if (item.object === 'MessageGenerationLog') {
+        if (item.object === 'MessageGenerationLog') {
             const newItem = {
                 ...item,
                 event: item.event.split('_').map((word: string) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
@@ -282,17 +275,6 @@ function Playground() {
             updatedGroupedMessages.content.text[updatedGroupedMessages.content.text.length - 1].event += str;
         } else if (item.object === 'Message' && checkBoxValue1.indexOf(1) === -1 && checkBoxValue1.indexOf(2) !== -1) {
             updatedGroupedMessages.content.text[updatedGroupedMessages.content.text.length - 1].event = item.content.text;
-            if (debugEnabled && item.trace_events && Array.isArray(item.trace_events)) {
-                const newTraceEvents = item.trace_events.filter((e: any) => e.object === 'TraceEvent')
-                if (newTraceEvents.length > 0) {
-                    setTraceEvents(prev => {
-                        const existingIds = new Set(prev.map((e: any) => e.event_id))
-                        const filtered = newTraceEvents.filter((e: any) => !existingIds.has(e.event_id))
-                        return [...prev, ...filtered]
-                    })
-                    setTracePanelVisible(true)
-                }
-            }
         } else if (item.object === 'Error') {
             setErrorContent(JSON.stringify(item, null, 4))
             setGenerateButtonLoading(false)
@@ -417,20 +399,6 @@ function Playground() {
             localStorage.setItem('contentHasMore', JSON.stringify(res.has_more))
             localStorage.setItem('contentTalk', JSON.stringify([...data, ...JSON.parse(contentTalk1)]) as any)
             setContentTalk(prevValues => [...data, ...prevValues])
-
-            if (!param.after) {
-                const latestMsgs = [...data]
-                const lastAssistantMsg = [...latestMsgs].reverse().find(
-                    (m: any) => m.role === 'assistant' && m.trace_events && Array.isArray(m.trace_events)
-                )
-                if (lastAssistantMsg) {
-                    const traceEvents = lastAssistantMsg.trace_events.filter((e: any) => e.object === 'TraceEvent')
-                    if (traceEvents.length > 0) {
-                        setTraceEvents(traceEvents)
-                        setTracePanelVisible(true)
-                    }
-                }
-            }
         } catch (error) {
             const apiError = error as ApiErrorResponse;
             const errorMessage: string = apiError.response.data.error.message;
@@ -648,8 +616,6 @@ function Playground() {
         if (sendButtonLoading || sendGenerateLoading || generateButtonLoading) {
             return toast.error('Cannot switch chat during message generation')
         }
-        setTraceEvents([])
-        setTracePanelVisible(false)
         setLoading(true)
         const params = {
         }
@@ -833,7 +799,6 @@ function Playground() {
         if (imgLoading) {
             return toast.error('The image is still uploading, please wait.')
         }
-        setTraceEvents([])
         const lastData = Array.isArray(contentTalk[contentTalk.length - 1]?.content.text)
         let lastMessage: boolean = false
         if (lastData) {
@@ -867,7 +832,6 @@ function Playground() {
         const checkBoxValue1 = JSON.parse(localStorage.getItem('checkedValues') as string) || checkBoxValue
         checkBoxValue1.indexOf(1) !== -1 ? stream = true : stream = false
         checkBoxValue1.indexOf(2) !== -1 ? debug = true : debug = false
-        setDebugEnabled(debug)
 
         const params = {
             system_prompt_variables: systemPromptVariables ? JSON.parse(systemPromptVariables) : {},
@@ -897,13 +861,6 @@ function Playground() {
             try {
                 const res = await generateMessage(id, chatId, params)
                 const { data } = res
-                if (debugEnabled && data.trace_events && Array.isArray(data.trace_events)) {
-                    const traceEvents = data.trace_events.filter((e: any) => e.object === 'TraceEvent')
-                    if (traceEvents.length > 0) {
-                        setTraceEvents(traceEvents)
-                        setTracePanelVisible(true)
-                    }
-                }
                 setContentTalk(prevValues => [...prevValues, {
                     role: 'Assistant',
                     content: {
@@ -950,6 +907,7 @@ function Playground() {
             );
         } else if (!stream && debug) {
             let arr1: any = []
+            setTraceEvents([])
             source?.addEventListener("message", (e: any) => {
                 if (e.data === '[DONE]') {
                     setGenerateButtonLoading(false)
@@ -963,6 +921,7 @@ function Playground() {
                         localStorage.setItem('inputResult', JSON.stringify(updatedValues));
                         return updatedValues;
                     });
+                    setTraceEvents(prev => [...prev, data])
                 }
                 arr1.push(data)
                 const binedArr = [...contentTalk, combineObjects(data, arr1)]
@@ -972,6 +931,7 @@ function Playground() {
             })
         } else {
             let arr1: any = []
+            setTraceEvents([])
             source?.addEventListener("message", (e: any) => {
                 if (e.data === '[DONE]') {
                     setGenerateButtonLoading(false)
@@ -986,6 +946,7 @@ function Playground() {
                         localStorage.setItem('outputResult', JSON.stringify(updatedValues));
                         return updatedValues;
                     });
+                    setTraceEvents(prev => [...prev, data])
                 }
                 arr1.push(data)
                 const binedArr = [...contentTalk, combineObjects(data, arr1)]
@@ -1091,17 +1052,6 @@ function Playground() {
                 const data = res1.data.reverse()
                 localStorage.setItem('contentTalk', JSON.stringify(data))
                 setContentTalk(res1.data)
-
-                const lastAssistantMsg = data.find(
-                    (m: any) => m.role === 'assistant' && m.trace_events && Array.isArray(m.trace_events)
-                )
-                if (lastAssistantMsg) {
-                    const traceEvents = lastAssistantMsg.trace_events.filter((e: any) => e.object === 'TraceEvent')
-                    if (traceEvents.length > 0) {
-                        setTraceEvents(traceEvents)
-                        setTracePanelVisible(true)
-                    }
-                }
             } catch (e) {
                 const apiResponse = e as ApiErrorResponse
                 const message = apiResponse.response.data.error.message
@@ -1220,8 +1170,6 @@ function Playground() {
         if (sendButtonLoading || sendGenerateLoading || generateButtonLoading) {
             return toast.error('Cannot switch chat during message generation')
         }
-        setTraceEvents([])
-        setTracePanelVisible(false)
         setChatId(value)
         localStorage.setItem('chatId', value)
         setContentTalkLoading(true)
@@ -1540,8 +1488,19 @@ function Playground() {
                                 {listChats.length > 0 && <CopyOutlined className='icon-copy' onClick={() => handleCopy(chatId)} />}
                             </div>
 
-                            {listChats.length > 0 && <div className={styles['header-right']} onClick={handleDeleteChat}>
-                                <Button icon={<DeleteIcon />} className='cancel-button'>{t('projectPlaygroundDeleteChat')}</Button>
+                            {listChats.length > 0 && <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                {traceEvents.length > 0 && (
+                                    <Button
+                                        onClick={() => setTracePanelOpen(true)}
+                                        className='cancel-button'
+                                    >
+                                        <EyeOutlined style={{ marginRight: '4px' }} />
+                                        Trace ({traceEvents.length})
+                                    </Button>
+                                )}
+                                <div className={styles['header-right']} onClick={handleDeleteChat}>
+                                    <Button icon={<DeleteIcon />} className='cancel-button'>{t('projectPlaygroundDeleteChat')}</Button>
+                                </div>
                             </div>}
                         </div>
                         {!chatId && <div className={styles['content-center']}>
@@ -1570,29 +1529,7 @@ function Playground() {
                                     </div>}
                                     {contentTalk.map((item, index) => (
                                         <div className={styles['message']} key={index} ref={divRef}>
-                                            <div className={`${styles.subText1} ${item.role === 'user' ? styles.user : ''}`}>
-                                                {item.role.charAt(0).toUpperCase() + item.role.slice(1)}
-                                                {item.role === 'assistant' && item.trace_events && Array.isArray(item.trace_events) && item.trace_events.length > 0 && (
-                                                    <span
-                                                        onClick={() => {
-                                                            const traceEvents = item.trace_events.filter((e: any) => e.object === 'TraceEvent')
-                                                            if (traceEvents.length > 0) {
-                                                                setTraceEvents(traceEvents)
-                                                                setTracePanelVisible(true)
-                                                                setDebugEnabled(true)
-                                                            }
-                                                        }}
-                                                        style={{
-                                                            marginLeft: '8px',
-                                                            cursor: 'pointer',
-                                                            fontSize: '12px',
-                                                            color: '#1890ff',
-                                                        }}
-                                                    >
-                                                        🔍 View Trace
-                                                    </span>
-                                                )}
-                                            </div>
+                                            <div className={`${styles.subText1} ${item.role === 'user' ? styles.user : ''}`}>{item.role.charAt(0).toUpperCase() + item.role.slice(1)}</div>
                                             {typeof (item.content.text) === 'string' && <div className={`${styles.text1} ${item.role === 'user' ? styles.userInfo : ''}`} style={{ whiteSpace: "pre-line" }}>{checkBoxValue.indexOf(4) !== -1 ? <MarkdownMessageBlock message={item.content.text} /> : item.content.text}</div>}
                                             {typeof (item.content.text) === 'object' && <div className={`text1 ${item.role === 'user' ? styles.userInfo : ''}`}>{item.content.text.map((item1: any, index1: number) => (<div key={index1} className={`${(item1.color === 'orange' && index === contentTalk.length - 1) ? 'orange' : 'green'} ${index1 === item.content.text.length - 1 && styles.lastItem}`}>
                                                 {(item1.color === 'orange' && index === contentTalk.length - 1 && item1.event_step !== '') ?
@@ -1617,7 +1554,6 @@ function Playground() {
                                 </div>
                             </Spin>
                         }
-                        <TracePanel events={traceEvents} visible={debugEnabled && tracePanelVisible} onClear={() => { setTraceEvents([]); setTracePanelVisible(false) }} />
                         <div className={`${styles['content-bottom']} ${!chatId ? styles.none : ''}`}>
                             {imgList.length > 0 && <div className={styles['upload-list']}>
                                 {imgList.map((item, index) => (
@@ -1777,6 +1713,85 @@ function Playground() {
             </Drawer>
             <CreatePlugin handleConfirmRequest={handleConfirmRequest} open={pluginModalOpen} handleCloseModal={handleClosePluginModal}></CreatePlugin>
             <DeleteModal title={t('projectPlaygroundDeleteChatUpper')} projectName={chatId} open={OpenDeleteModal} describe={`${t('deleteItem')} ${t('projectPlaygroundChatLow')} ${chatId}`} onDeleteCancel={onDeleteCancel} onDeleteConfirm={onDeleteConfirm}></DeleteModal>
+            <Drawer
+                closeIcon={<img src={closeIcon} alt="closeIcon" className='img-icon-close' />}
+                className={styles['trace-drawer']}
+                width={800}
+                onClose={() => setTracePanelOpen(false)}
+                title="Generation Trace"
+                placement="right"
+                open={tracePanelOpen}
+                size='large'
+            >
+                <div className={styles['trace-container']}>
+                    <div className={styles['trace-header']}>
+                        <div className={styles['trace-summary']}>
+                            Total Events: {traceEvents.length}
+                        </div>
+                    </div>
+                    <div className={styles['trace-list']}>
+                        {traceEvents.sort((a, b) => a.timestamp - b.timestamp).map((event, index) => {
+                            const eventLabel = event.event.split('_').map((word: string) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+                            const stepLabel = event.event_step ? event.event_step.charAt(0).toUpperCase() + event.event_step.slice(1) : '';
+                            const statusColor = event.status === 'error' ? '#ec1943' : event.status === 'success' ? '#099250' : event.status === 'start' ? '#ffbb58' : '#777';
+                            const statusText = event.status || 'info';
+                            return (
+                                <div
+                                    key={index}
+                                    className={`${styles['trace-item']} ${selectedTraceEvent?.event_id === event.event_id && selectedTraceEvent?.event_step === event.event_step ? styles['trace-item-active'] : ''}`}
+                                    onClick={() => setSelectedTraceEvent(event)}
+                                >
+                                    <div className={styles['trace-item-left']}>
+                                        <div className={styles['trace-dot']} style={{ backgroundColor: statusColor }} />
+                                        <div className={styles['trace-line']} />
+                                    </div>
+                                    <div className={styles['trace-item-content']}>
+                                        <div className={styles['trace-item-header']}>
+                                            <span className={styles['trace-event-name']}>
+                                                {eventLabel} {stepLabel && `· ${stepLabel}`}
+                                            </span>
+                                            <span className={styles['trace-status']} style={{ color: statusColor }}>
+                                                {statusText}
+                                            </span>
+                                        </div>
+                                        {event.input_summary && (
+                                            <div className={styles['trace-summary-text']}>
+                                                {event.input_summary}
+                                            </div>
+                                        )}
+                                        <div className={styles['trace-item-meta']}>
+                                            <span>{new Date(event.timestamp).toLocaleTimeString()}</span>
+                                            {event.duration_ms !== undefined && event.duration_ms !== null && (
+                                                <span>· {event.duration_ms}ms</span>
+                                            )}
+                                            {event.event_id && (
+                                                <span className={styles['trace-event-id']}>· {event.event_id.slice(0, 8)}...</span>
+                                            )}
+                                        </div>
+                                        {selectedTraceEvent?.event_id === event.event_id && selectedTraceEvent?.event_step === event.event_step && (
+                                            <div className={styles['trace-detail']}>
+                                                <div className={styles['trace-detail-header']}>
+                                                    <span>Event Details</span>
+                                                    <CopyOutlined
+                                                        className='icon-copy'
+                                                        onClick={(e: any) => {
+                                                            e.stopPropagation();
+                                                            handleCopy(JSON.stringify(event, null, 2));
+                                                        }}
+                                                    />
+                                                </div>
+                                                <pre className={styles['trace-detail-json']}>
+                                                    {JSON.stringify(event, null, 2)}
+                                                </pre>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            </Drawer>
         </>
     );
 }

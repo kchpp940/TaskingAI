@@ -36,24 +36,34 @@ async def api_chat_generate(
 
     assistant, chat = await get_assistant_and_chat(assistant_id, chat_id)
 
-    if payload.stream or payload.debug:
+    if payload.stream:
         session = StatefulStreamSession(
             assistant=assistant,
             chat=chat,
             stream=payload.stream,
             debug=payload.debug,
-            save_logs=False,  # todo: save_logs
+            save_logs=payload.debug,
         )
         return StreamingResponse(
             session.stream_generate(system_prompt_variables),
             media_type="text/event-stream",
         )
-
+    elif payload.debug:
+        session = StatefulStreamSession(
+            assistant=assistant,
+            chat=chat,
+            stream=False,
+            debug=True,
+            save_logs=True,
+        )
+        return StreamingResponse(
+            session.stream_generate(system_prompt_variables),
+            media_type="text/event-stream",
+        )
     else:
         session = StatefulNormalSession(
             assistant=assistant,
             chat=chat,
-            save_logs=False,  # todo: save_logs
-            debug=payload.debug,
+            save_logs=False,
         )
         return await session.generate(system_prompt_variables)

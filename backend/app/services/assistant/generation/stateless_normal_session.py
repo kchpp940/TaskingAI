@@ -15,8 +15,8 @@ logger = logging.getLogger(__name__)
 
 
 class StatelessNormalSession(Session):
-    def __init__(self, assistant: Assistant, save_logs: bool, debug: bool = False):
-        super().__init__(assistant, None, save_logs, debug=debug)
+    def __init__(self, assistant: Assistant, save_logs: bool):
+        super().__init__(assistant, None, save_logs)
 
     async def generate(
         self,
@@ -36,6 +36,7 @@ class StatelessNormalSession(Session):
             while True:
                 try:
                     chat_completion_event_id = generate_random_event_id()
+                    # append chat completion input log
                     if self.save_logs:
                         chat_completion_input_log_dict = build_chat_completion_input_log_dict(
                             session_id=self.session_id,
@@ -43,10 +44,10 @@ class StatelessNormalSession(Session):
                             model=self.model,
                             messages=self.chat_completion_messages,
                             functions=self.chat_completion_functions,
-                            status="started",
                         )
                         self.logs.append(chat_completion_input_log_dict)
 
+                    # inference
                     (
                         chat_completion_assistant_message_dict,
                         chat_completion_function_calls_dict_list,
@@ -54,6 +55,7 @@ class StatelessNormalSession(Session):
                         response_dict,
                     ) = await self.inference()
 
+                    # append chat completion output log
                     if self.save_logs:
                         chat_completion_output_log_dict = build_chat_completion_output_log_dict(
                             session_id=self.session_id,
@@ -61,7 +63,6 @@ class StatelessNormalSession(Session):
                             model=self.model,
                             message=chat_completion_assistant_message_dict,
                             usage=usage_dict,
-                            status="completed",
                         )
                         self.logs.append(chat_completion_output_log_dict)
 
@@ -74,6 +75,9 @@ class StatelessNormalSession(Session):
                 logger.debug(f"chat_completion_function_calls_dict_list = {chat_completion_function_calls_dict_list}")
 
                 if chat_completion_function_calls_dict_list:
+                    # check if there are any user functions in the chat completion response
+                    # if there are, filter them and return them in the response
+                    # don't include other tool calls in the response
                     filtered_user_function_calls = self.filter_user_function_calls(
                         chat_completion_function_calls_dict_list
                     )
@@ -90,7 +94,7 @@ class StatelessNormalSession(Session):
                             round_index=function_calls_round_index,
                             log=self.save_logs,
                         )
-                        async for _ in self.run_tools(chat_completion_function_calls_dict_list, log=self.save_logs):
+                        async for _ in self.run_tools(chat_completion_function_calls_dict_list):
                             pass
                     except MessageGenerationException as e:
                         logger.error(f"MessageGenerationException occurred in using the tools: {e}")
@@ -105,14 +109,7 @@ class StatelessNormalSession(Session):
             response_dict["usage"]["input_tokens"] = self.total_input_tokens
             response_dict["usage"]["output_tokens"] = self.total_output_tokens
 
-            # Build usage summary trace
-            self.build_usage_summary_trace()
-
-            # Attach trace_events to response only when debug=True
-            trace_dicts = self.get_trace_events_dicts()
-            if trace_dicts is not None:
-                response_dict["trace_events"] = trace_dicts
-
+            # todo: save logs
             return ChatCompletionResponse(data=response_dict)
 
         except MessageGenerationInvalidRequestException as e:

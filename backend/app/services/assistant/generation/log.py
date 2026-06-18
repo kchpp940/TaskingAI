@@ -1,56 +1,34 @@
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 from tkhelper.utils import current_timestamp_int_milliseconds
 
-from app.models import (
-    MessageGenerationLog,
-    Model,
-    RetrievalResult,
-    ToolInput,
-    ToolOutput,
-    TraceEvent,
-    TraceEventType,
-    TraceEventStatus,
-)
+from app.models import MessageGenerationLog, Model, RetrievalResult, ToolInput, ToolOutput
 
 __all__ = [
-    # ---- Legacy MessageGenerationLog builders (for backward compatibility) ----
     "build_retrieval_input_log_dict",
     "build_retrieval_output_log_dict",
     "build_tool_input_log_dict",
     "build_tool_output_log_dict",
     "build_chat_completion_input_log_dict",
     "build_chat_completion_output_log_dict",
-    # ---- New TraceEvent builders (stable, for frontend consumption) ----
-    "build_trace_event",
-    "build_trace_memory_build",
-    "build_trace_system_prompt_build",
-    "build_trace_retrieval_start",
-    "build_trace_retrieval_complete",
-    "build_trace_retrieval_error",
-    "build_trace_tool_start",
-    "build_trace_tool_complete",
-    "build_trace_tool_error",
-    "build_trace_inference_start",
-    "build_trace_inference_complete",
-    "build_trace_inference_error",
-    "build_trace_chat_completion_start",
-    "build_trace_chat_completion_complete",
-    "build_trace_chat_completion_error",
-    "build_trace_usage_summary",
+    "build_trace_start_log_dict",
+    "build_trace_end_log_dict",
+    "build_trace_error_log_dict",
+    "build_usage_summary_log_dict",
+    "TraceCollector",
 ]
 
 
-# ==========================================================================
-# Legacy MessageGenerationLog builders (unchanged, for debug log storage)
-# ==========================================================================
+def _truncate_text(text: str, max_len: int = 100) -> str:
+    if text and len(text) > max_len:
+        return text[:max_len] + "..."
+    return text or ""
+
 
 def build_retrieval_input_log_dict(
     session_id: str,
     event_id: str,
     query_text: str,
     top_k: int,
-    duration_ms: Optional[int] = None,
-    status: str = "started",
 ):
     return MessageGenerationLog(
         session_id=session_id,
@@ -62,8 +40,8 @@ def build_retrieval_input_log_dict(
             "query_text": query_text,
             "top_k": top_k,
         },
-        status=status,
-        duration_ms=duration_ms,
+        status="start",
+        input_summary=f"query: {_truncate_text(query_text)}",
     ).model_dump(exclude_none=True)
 
 
@@ -72,8 +50,6 @@ def build_retrieval_output_log_dict(
     event_id: str,
     retrieval_result: List[RetrievalResult],
     duration_ms: Optional[int] = None,
-    status: str = "completed",
-    error: Optional[str] = None,
 ):
     return MessageGenerationLog(
         session_id=session_id,
@@ -84,9 +60,9 @@ def build_retrieval_output_log_dict(
         content={
             "result": retrieval_result,
         },
-        status=status,
+        status="success",
         duration_ms=duration_ms,
-        error=error,
+        input_summary=f"hit {len(retrieval_result)} chunks",
     ).model_dump(exclude_none=True)
 
 
@@ -94,9 +70,8 @@ def build_tool_input_log_dict(
     session_id: str,
     event_id: str,
     tool_input: ToolInput,
-    duration_ms: Optional[int] = None,
-    status: str = "started",
 ):
+    args_str = _truncate_text(str(tool_input.arguments))
     return MessageGenerationLog(
         session_id=session_id,
         event="tool",
@@ -104,8 +79,8 @@ def build_tool_input_log_dict(
         event_step="input",
         timestamp=current_timestamp_int_milliseconds(),
         content=tool_input.model_dump(),
-        status=status,
-        duration_ms=duration_ms,
+        status="start",
+        input_summary=f"tool_id={tool_input.tool_id}, args={args_str}",
     ).model_dump(exclude_none=True)
 
 
@@ -114,9 +89,8 @@ def build_tool_output_log_dict(
     event_id: str,
     tool_output: ToolOutput,
     duration_ms: Optional[int] = None,
-    status: str = "completed",
-    error: Optional[str] = None,
 ):
+    output_str = _truncate_text(str(tool_output.content))
     return MessageGenerationLog(
         session_id=session_id,
         event="tool",
@@ -124,9 +98,9 @@ def build_tool_output_log_dict(
         event_step="output",
         timestamp=current_timestamp_int_milliseconds(),
         content=tool_output.model_dump(),
-        status=status,
+        status="success",
         duration_ms=duration_ms,
-        error=error,
+        input_summary=f"result: {output_str}",
     ).model_dump(exclude_none=True)
 
 
@@ -136,10 +110,8 @@ def build_chat_completion_input_log_dict(
     model: Model,
     messages: List[Dict],
     functions: List[Dict],
-    duration_ms: Optional[int] = None,
-    status: str = "started",
 ):
-    log = MessageGenerationLog(
+    return MessageGenerationLog(
         session_id=session_id,
         event="chat_completion",
         event_id=event_id,
@@ -152,10 +124,9 @@ def build_chat_completion_input_log_dict(
             "messages": messages,
             "functions": functions,
         },
-        status=status,
-        duration_ms=duration_ms,
-    )
-    return log.model_dump(exclude_none=True)
+        status="start",
+        input_summary=f"model={model.provider_model_id}, msgs={len(messages)}, funcs={len(functions)}",
+    ).model_dump(exclude_none=True)
 
 
 def build_chat_completion_output_log_dict(
@@ -165,9 +136,8 @@ def build_chat_completion_output_log_dict(
     message: Dict,
     usage: Dict,
     duration_ms: Optional[int] = None,
-    status: str = "completed",
-    error: Optional[str] = None,
 ):
+    usage_str = f"in={usage.get('input_tokens', 0)}, out={usage.get('output_tokens', 0)}" if usage else ""
     return MessageGenerationLog(
         session_id=session_id,
         event="chat_completion",
@@ -181,351 +151,116 @@ def build_chat_completion_output_log_dict(
             "message": message,
             "usage": usage,
         },
-        status=status,
+        status="success",
         duration_ms=duration_ms,
-        error=error,
+        input_summary=usage_str,
     ).model_dump(exclude_none=True)
 
 
-# ==========================================================================
-# Stable TraceEvent builders (frontend consumption)
-# ==========================================================================
-
-def build_trace_event(
-    trace_id: str,
+def build_trace_start_log_dict(
+    session_id: str,
     event_id: str,
-    event_type: TraceEventType,
-    status: TraceEventStatus,
-    content: Dict[str, Any],
-    duration_ms: Optional[int] = None,
-    error: Optional[str] = None,
-) -> TraceEvent:
-    """Generic TraceEvent builder with stable schema."""
-    return TraceEvent(
-        trace_id=trace_id,
+    event: str,
+    content: Dict,
+    input_summary: Optional[str] = None,
+):
+    return MessageGenerationLog(
+        session_id=session_id,
+        event=event,
         event_id=event_id,
-        event_type=event_type,
-        status=status,
+        event_step="start",
         timestamp=current_timestamp_int_milliseconds(),
-        duration_ms=duration_ms,
         content=content,
-        error=error,
-    )
+        status="start",
+        input_summary=input_summary,
+    ).model_dump(exclude_none=True)
 
 
-def build_trace_memory_build(
-    trace_id: str,
+def build_trace_end_log_dict(
+    session_id: str,
     event_id: str,
-    num_messages: int,
+    event: str,
+    content: Dict,
     duration_ms: int,
-) -> TraceEvent:
-    """Memory build completed event."""
-    return TraceEvent(
-        trace_id=trace_id,
+    input_summary: Optional[str] = None,
+):
+    return MessageGenerationLog(
+        session_id=session_id,
+        event=event,
         event_id=event_id,
-        event_type=TraceEventType.MEMORY_BUILD,
-        status=TraceEventStatus.COMPLETED,
+        event_step="end",
         timestamp=current_timestamp_int_milliseconds(),
+        content=content,
+        status="success",
         duration_ms=duration_ms,
-        content={"num_messages": num_messages},
-    )
+        input_summary=input_summary,
+    ).model_dump(exclude_none=True)
 
 
-def build_trace_system_prompt_build(
-    trace_id: str,
+def build_trace_error_log_dict(
+    session_id: str,
     event_id: str,
-    prompt_length: int,
-    has_retrieval: bool,
-    duration_ms: int,
-) -> TraceEvent:
-    """System prompt build completed event."""
-    return TraceEvent(
-        trace_id=trace_id,
+    event: str,
+    error_message: str,
+    error_type: Optional[str] = None,
+    duration_ms: Optional[int] = None,
+    content: Optional[Dict] = None,
+):
+    return MessageGenerationLog(
+        session_id=session_id,
+        event=event,
         event_id=event_id,
-        event_type=TraceEventType.SYSTEM_PROMPT_BUILD,
-        status=TraceEventStatus.COMPLETED,
+        event_step="error",
         timestamp=current_timestamp_int_milliseconds(),
+        content=content or {},
+        status="error",
         duration_ms=duration_ms,
-        content={"prompt_length": prompt_length, "has_retrieval": has_retrieval},
-    )
-
-
-def build_trace_retrieval_start(
-    trace_id: str,
-    event_id: str,
-    query_text: str,
-    top_k: int,
-) -> TraceEvent:
-    """Retrieval started event."""
-    return TraceEvent(
-        trace_id=trace_id,
-        event_id=event_id,
-        event_type=TraceEventType.RETRIEVAL,
-        status=TraceEventStatus.STARTED,
-        timestamp=current_timestamp_int_milliseconds(),
-        content={"query_text": query_text, "top_k": top_k},
-    )
-
-
-def build_trace_retrieval_complete(
-    trace_id: str,
-    event_id: str,
-    result_count: int,
-    results: List[RetrievalResult],
-    duration_ms: int,
-) -> TraceEvent:
-    """Retrieval completed event."""
-    return TraceEvent(
-        trace_id=trace_id,
-        event_id=event_id,
-        event_type=TraceEventType.RETRIEVAL,
-        status=TraceEventStatus.COMPLETED,
-        timestamp=current_timestamp_int_milliseconds(),
-        duration_ms=duration_ms,
-        content={
-            "result_count": result_count,
-            "results": [r.model_dump(exclude_none=True) for r in results],
+        error={
+            "message": error_message,
+            "type": error_type or "Exception",
         },
-    )
+        input_summary=f"error: {_truncate_text(error_message)}",
+    ).model_dump(exclude_none=True)
 
 
-def build_trace_retrieval_error(
-    trace_id: str,
+def build_usage_summary_log_dict(
+    session_id: str,
     event_id: str,
-    error: str,
-    duration_ms: int,
-) -> TraceEvent:
-    """Retrieval error event."""
-    return TraceEvent(
-        trace_id=trace_id,
-        event_id=event_id,
-        event_type=TraceEventType.RETRIEVAL,
-        status=TraceEventStatus.ERROR,
-        timestamp=current_timestamp_int_milliseconds(),
-        duration_ms=duration_ms,
-        content={},
-        error=error,
-    )
-
-
-def build_trace_tool_start(
-    trace_id: str,
-    event_id: str,
-    tool_type: str,
-    tool_id: str,
-    name: str,
-    arguments: Dict[str, Any],
-) -> TraceEvent:
-    """Tool call started event."""
-    return TraceEvent(
-        trace_id=trace_id,
-        event_id=event_id,
-        event_type=TraceEventType.TOOL_CALL,
-        status=TraceEventStatus.STARTED,
-        timestamp=current_timestamp_int_milliseconds(),
-        content={
-            "tool_type": tool_type,
-            "tool_id": tool_id,
-            "name": name,
-            "arguments": arguments,
-        },
-    )
-
-
-def build_trace_tool_complete(
-    trace_id: str,
-    event_id: str,
-    tool_type: str,
-    tool_id: str,
-    output: str,
-    duration_ms: int,
-) -> TraceEvent:
-    """Tool call completed event."""
-    return TraceEvent(
-        trace_id=trace_id,
-        event_id=event_id,
-        event_type=TraceEventType.TOOL_CALL,
-        status=TraceEventStatus.COMPLETED,
-        timestamp=current_timestamp_int_milliseconds(),
-        duration_ms=duration_ms,
-        content={
-            "tool_type": tool_type,
-            "tool_id": tool_id,
-            "output": output,
-        },
-    )
-
-
-def build_trace_tool_error(
-    trace_id: str,
-    event_id: str,
-    tool_type: str,
-    tool_id: str,
-    error: str,
-    duration_ms: int,
-) -> TraceEvent:
-    """Tool call error event."""
-    return TraceEvent(
-        trace_id=trace_id,
-        event_id=event_id,
-        event_type=TraceEventType.TOOL_CALL,
-        status=TraceEventStatus.ERROR,
-        timestamp=current_timestamp_int_milliseconds(),
-        duration_ms=duration_ms,
-        content={
-            "tool_type": tool_type,
-            "tool_id": tool_id,
-        },
-        error=error,
-    )
-
-
-def build_trace_inference_start(
-    trace_id: str,
-    event_id: str,
-    model_id: str,
-    provider_model_id: str,
-    message_count: int,
-    function_count: int,
-) -> TraceEvent:
-    """Model inference started event."""
-    return TraceEvent(
-        trace_id=trace_id,
-        event_id=event_id,
-        event_type=TraceEventType.INFERENCE,
-        status=TraceEventStatus.STARTED,
-        timestamp=current_timestamp_int_milliseconds(),
-        content={
-            "model_id": model_id,
-            "provider_model_id": provider_model_id,
-            "message_count": message_count,
-            "function_count": function_count,
-        },
-    )
-
-
-def build_trace_inference_complete(
-    trace_id: str,
-    event_id: str,
-    input_tokens: int,
-    output_tokens: int,
-    duration_ms: int,
-) -> TraceEvent:
-    """Model inference completed event."""
-    return TraceEvent(
-        trace_id=trace_id,
-        event_id=event_id,
-        event_type=TraceEventType.INFERENCE,
-        status=TraceEventStatus.COMPLETED,
-        timestamp=current_timestamp_int_milliseconds(),
-        duration_ms=duration_ms,
-        content={
-            "input_tokens": input_tokens,
-            "output_tokens": output_tokens,
-        },
-    )
-
-
-def build_trace_inference_error(
-    trace_id: str,
-    event_id: str,
-    error: str,
-    duration_ms: int,
-) -> TraceEvent:
-    """Model inference error event."""
-    return TraceEvent(
-        trace_id=trace_id,
-        event_id=event_id,
-        event_type=TraceEventType.INFERENCE,
-        status=TraceEventStatus.ERROR,
-        timestamp=current_timestamp_int_milliseconds(),
-        duration_ms=duration_ms,
-        content={},
-        error=error,
-    )
-
-
-def build_trace_chat_completion_start(
-    trace_id: str,
-    event_id: str,
-    model_id: str,
-    provider_model_id: str,
-    message_count: int,
-    function_count: int,
-) -> TraceEvent:
-    """Chat completion request started event."""
-    return TraceEvent(
-        trace_id=trace_id,
-        event_id=event_id,
-        event_type=TraceEventType.CHAT_COMPLETION,
-        status=TraceEventStatus.STARTED,
-        timestamp=current_timestamp_int_milliseconds(),
-        content={
-            "model_id": model_id,
-            "provider_model_id": provider_model_id,
-            "message_count": message_count,
-            "function_count": function_count,
-        },
-    )
-
-
-def build_trace_chat_completion_complete(
-    trace_id: str,
-    event_id: str,
-    input_tokens: int,
-    output_tokens: int,
-    has_function_calls: bool,
-    duration_ms: int,
-) -> TraceEvent:
-    """Chat completion request completed event."""
-    return TraceEvent(
-        trace_id=trace_id,
-        event_id=event_id,
-        event_type=TraceEventType.CHAT_COMPLETION,
-        status=TraceEventStatus.COMPLETED,
-        timestamp=current_timestamp_int_milliseconds(),
-        duration_ms=duration_ms,
-        content={
-            "input_tokens": input_tokens,
-            "output_tokens": output_tokens,
-            "has_function_calls": has_function_calls,
-        },
-    )
-
-
-def build_trace_chat_completion_error(
-    trace_id: str,
-    event_id: str,
-    error: str,
-    duration_ms: int,
-) -> TraceEvent:
-    """Chat completion request error event."""
-    return TraceEvent(
-        trace_id=trace_id,
-        event_id=event_id,
-        event_type=TraceEventType.CHAT_COMPLETION,
-        status=TraceEventStatus.ERROR,
-        timestamp=current_timestamp_int_milliseconds(),
-        duration_ms=duration_ms,
-        content={},
-        error=error,
-    )
-
-
-def build_trace_usage_summary(
-    trace_id: str,
     total_input_tokens: int,
     total_output_tokens: int,
-) -> TraceEvent:
-    """Final token usage summary event."""
-    return TraceEvent(
-        trace_id=trace_id,
-        event_id="usage_summary",
-        event_type=TraceEventType.USAGE_SUMMARY,
-        status=TraceEventStatus.COMPLETED,
+    total_duration_ms: Optional[int] = None,
+):
+    return MessageGenerationLog(
+        session_id=session_id,
+        event="usage_summary",
+        event_id=event_id,
+        event_step="summary",
         timestamp=current_timestamp_int_milliseconds(),
         content={
             "total_input_tokens": total_input_tokens,
             "total_output_tokens": total_output_tokens,
         },
-    )
+        status="success",
+        duration_ms=total_duration_ms,
+        input_summary=f"total_in={total_input_tokens}, total_out={total_output_tokens}",
+    ).model_dump(exclude_none=True)
+
+
+class TraceCollector:
+    def __init__(self):
+        self._start_times: Dict[str, int] = {}
+
+    def start(self, event_id: str) -> int:
+        now = current_timestamp_int_milliseconds()
+        self._start_times[event_id] = now
+        return now
+
+    def duration(self, event_id: str) -> Optional[int]:
+        start = self._start_times.get(event_id)
+        if start is None:
+            return None
+        return current_timestamp_int_milliseconds() - start
+
+    def clear(self, event_id: str):
+        if event_id in self._start_times:
+            del self._start_times[event_id]

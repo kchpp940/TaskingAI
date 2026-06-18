@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Optional, List, Union, Dict, Any
+from typing import Optional, List, Union
 from pydantic import BaseModel, Field
 from abc import ABCMeta
 from .chat_completion_function import ChatCompletionFunctionCall
@@ -137,12 +137,6 @@ class ChatCompletion(BaseModel):
     usage: ChatCompletionUsage = Field(
         ...,
         description="The token usage of the response.",
-    )
-
-    trace_events: Optional[List[Dict[str, Any]]] = Field(
-        None,
-        description="List of trace events for debugging the generation pipeline. "
-        "Only present when debug mode or trace collection is enabled.",
     )
 
 

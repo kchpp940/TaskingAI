@@ -124,7 +124,6 @@ async def api_chat_completion(
             session = StatelessStreamSession(
                 assistant=assistant,
                 save_logs=False,  # todo: enable save_logs
-                debug=data.debug,
             )
             return StreamingResponse(
                 session.stream_generate(data.messages, data.functions),
@@ -134,7 +133,6 @@ async def api_chat_completion(
             session = StatelessNormalSession(
                 assistant=assistant,
                 save_logs=False,  # todo: enable save_logs
-                debug=data.debug,
             )
             return await session.generate(data.messages, data.functions)
 

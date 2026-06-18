@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, List, Any, Optional
 from pydantic import BaseModel, Field
 from app.models import Message
 
@@ -6,13 +6,6 @@ __all__ = [
     "MessageGenerateRequest",
     "MessageGenerateResponse",
 ]
-
-# ----------------------------
-# Generate Assistant Message
-# POST /assistants/{assistant_id}/chats/{chat_id}/messages/generate
-# Request Params: None
-# Request: MessageGenerateRequest
-# Response: MessageGenerateResponse
 
 
 class MessageGenerateRequest(BaseModel):
@@ -38,3 +31,7 @@ class MessageGenerateRequest(BaseModel):
 class MessageGenerateResponse(BaseModel):
     status: str = Field("success")
     data: Message = Field(...)
+    trace: Optional[List[Dict[str, Any]]] = Field(
+        None,
+        description="Structured trace events for debugging the generation process. Only present when debug=True and stream=False.",
+    )
