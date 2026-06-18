@@ -99,7 +99,19 @@ class TextEmbeddingRequest(BaseModel):
 class TextEmbeddingMetadata(BaseModel):
     cache_backend: str = Field(
         "",
-        description="Cache backend used: 'redis' for shared cross-instance cache, 'memory' for local in-memory only.",
+        description="DEPRECATED: use effective_backend instead. Retained for backward compatibility.",
+    )
+    configured_backend: str = Field(
+        "",
+        description="Configured cache backend: 'redis' if REDIS_URL is set, 'memory' otherwise.",
+    )
+    effective_backend: str = Field(
+        "",
+        description="Actually used cache backend for this request. May differ from configured_backend on fallback.",
+    )
+    fallback_reason: Optional[str] = Field(
+        None,
+        description="Why a fallback happened: None (no fallback), 'redis_not_configured', 'redis_not_initialized', 'redis_operation_failed'.",
     )
     cache_hits: int = Field(
         0,

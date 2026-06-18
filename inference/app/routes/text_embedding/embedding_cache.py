@@ -1,10 +1,18 @@
 import hashlib
 import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from config import CONFIG
-from .cache_backends import EmbeddingCacheBackend, get_current_cache_backend
+from .cache_backends import (
+    FailoverCacheBackend,
+    CacheBackendStatus,
+    begin_request as _backend_begin_request,
+    end_request as _backend_end_request,
+    get_backend_names as _backend_get_names,
+    get_fallback_reason as _backend_get_fallback_reason,
+    get_current_cache_backend,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,12 +47,27 @@ def generate_cache_key(
     return _CACHE_KEY_PREFIX + hashlib.sha256(raw.encode()).hexdigest()
 
 
-def get_cache_backend() -> EmbeddingCacheBackend:
+def get_cache_backend() -> FailoverCacheBackend:
     return get_current_cache_backend()
 
 
+def begin_request() -> CacheBackendStatus:
+    return _backend_begin_request()
+
+
+def end_request() -> CacheBackendStatus:
+    return _backend_end_request()
+
+
+def get_backend_status() -> Tuple[str, str, Optional[str]]:
+    configured, effective = _backend_get_names()
+    fallback_reason = _backend_get_fallback_reason()
+    return configured, effective, fallback_reason
+
+
 def get_cache_backend_name() -> str:
-    return get_current_cache_backend().name
+    _, effective, _ = get_backend_status()
+    return effective
 
 
 async def get_cached(key: str, ttl: Optional[int] = None) -> Optional[List[float]]:
@@ -71,5 +94,8 @@ async def evict_expired(ttl: Optional[int] = None) -> int:
 def cache_stats() -> Dict[str, Any]:
     backend = get_cache_backend()
     stats = backend.stats()
-    stats["backend"] = backend.name
+    configured, effective, fallback_reason = get_backend_status()
+    stats["configured_backend"] = configured
+    stats["effective_backend"] = effective
+    stats["fallback_reason"] = fallback_reason
     return stats

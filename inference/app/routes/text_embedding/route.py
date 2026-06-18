@@ -11,7 +11,7 @@ from app.models.tokenizer import string_tokens
 import asyncio
 import time
 from .schema import *
-from .embedding_cache import generate_cache_key, get_cached, set_cached, get_cache_backend_name
+from .embedding_cache import generate_cache_key, get_cached, set_cached, begin_request, end_request, get_backend_status
 import logging
 from typing import Dict, List, Optional
 import numpy as np
@@ -75,6 +75,42 @@ async def embed_text(
     cache_ttl: int = 300,
 ) -> tuple:
     start_time = time.time()
+    begin_request()
+    try:
+        return await _embed_text_inner(
+            provider_id=provider_id,
+            provider_model_id=provider_model_id,
+            model_schema_id=model_schema_id,
+            input=input,
+            credentials=credentials,
+            properties=properties,
+            configs=configs,
+            input_type=input_type,
+            proxy=proxy,
+            custom_headers=custom_headers,
+            cache_ttl=cache_ttl,
+            start_time=start_time,
+        )
+    finally:
+        end_request()
+
+
+async def _embed_text_inner(
+    provider_id: str,
+    provider_model_id: str,
+    model_schema_id: str,
+    input: List[str],
+    credentials: ProviderCredentials,
+    properties: TextEmbeddingModelProperties,
+    configs: TextEmbeddingModelConfiguration,
+    input_type: Optional[TextEmbeddingInputType] = None,
+    proxy: Optional[str] = None,
+    custom_headers: Optional[Dict[str, str]] = None,
+    cache_ttl: int = 300,
+    start_time: Optional[float] = None,
+) -> tuple:
+    if start_time is None:
+        start_time = time.time()
     model = get_text_embedding_model(provider_id=provider_id)
     batch_size = properties.max_batch_size if properties else 512
 
@@ -158,10 +194,13 @@ async def embed_text(
 
     elapsed_ms = round((time.time() - start_time) * 1000, 2)
     usage = TextEmbeddingUsage(input_tokens=sum(string_tokens(i) for i in input))
-    cache_backend = get_cache_backend_name()
+    configured_backend, effective_backend, fallback_reason = get_backend_status()
 
     metadata = TextEmbeddingMetadata(
-        cache_backend=cache_backend,
+        cache_backend=effective_backend,
+        configured_backend=configured_backend,
+        effective_backend=effective_backend,
+        fallback_reason=fallback_reason,
         cache_hits=cache_hits,
         total_inputs=len(input),
         unique_keys=len(unique_cache_keys),
@@ -169,12 +208,13 @@ async def embed_text(
         batch_count=batch_count,
         elapsed_ms=elapsed_ms,
     )
+    fallback_suffix = f" fallback_reason={fallback_reason}" if fallback_reason else ""
     logger.info(
-        f"embedding_cache: backend={cache_backend} "
+        f"embedding_cache: configured={configured_backend} effective={effective_backend} "
         f"model_schema_id={model_schema_id} "
         f"total={len(input)} unique_keys={len(unique_cache_keys)} "
         f"cache_hits={cache_hits} provider_calls={provider_calls} "
-        f"batches={batch_count} elapsed_ms={elapsed_ms}"
+        f"batches={batch_count} elapsed_ms={elapsed_ms}{fallback_suffix}"
     )
 
     return TextEmbeddingResult(data=merged_results, usage=usage), metadata
