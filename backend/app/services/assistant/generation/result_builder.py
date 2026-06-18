@@ -1,7 +1,7 @@
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from fastapi import HTTPException
 from tkhelper.error import ErrorCode, raise_http_error
@@ -15,6 +15,11 @@ from app.schemas.model.chat_completion import ChatCompletionResponse
 from .log import (
     build_chat_completion_input_log_dict,
     build_chat_completion_output_log_dict,
+)
+from .session import (
+    TOOL_RUN_TYPE_LOG,
+    TOOL_RUN_TYPE_TOOL_OUTPUT,
+    TOOL_RUN_TYPE_RETRIEVAL_RESULT,
 )
 from .utils import (
     MessageGenerationException,
@@ -42,6 +47,52 @@ def error_message(code, message: str):
     }
 
 
+def _extract_artifacts_from_tool_output(tool_output: ToolOutput) -> List[Dict[str, Any]]:
+    artifacts: List[Dict[str, Any]] = []
+    if tool_output.status != 200:
+        return artifacts
+    data = tool_output.data
+    if isinstance(data, dict):
+        for key in ("artifact", "artifacts", "file", "files"):
+            value = data.get(key)
+            if value is None:
+                continue
+            if isinstance(value, list):
+                for item in value:
+                    if isinstance(item, dict):
+                        artifacts.append(item)
+            elif isinstance(value, dict):
+                artifacts.append(value)
+    for idx, artifact in enumerate(artifacts):
+        if "source" not in artifact:
+            artifact["source"] = {
+                "type": "tool",
+                "tool_id": tool_output.tool_id,
+                "tool_type": tool_output.type.value if hasattr(tool_output.type, "value") else tool_output.type,
+                "tool_call_id": tool_output.tool_call_id,
+                "index": idx,
+            }
+    return artifacts
+
+
+def _extract_artifacts_from_retrieval(retrieval_results: List[Any]) -> List[Dict[str, Any]]:
+    artifacts: List[Dict[str, Any]] = []
+    for idx, result in enumerate(retrieval_results or []):
+        if isinstance(result, dict):
+            if "artifact" in result or "file" in result or "url" in result:
+                artifact = {
+                "source": {
+                    "type": "retrieval",
+                    "index": idx,
+                }
+            }
+            for key in ("artifact", "file", "url", "name", "title"):
+                if key in result:
+                    artifact[key] = result[key]
+            artifacts.append(artifact)
+    return artifacts
+
+
 @dataclass
 class InferenceRound:
     round_index: int
@@ -51,6 +102,7 @@ class InferenceRound:
     usage_dict: Optional[Dict] = None
     response_dict: Optional[Dict] = None
     duration_ms: Optional[int] = None
+    _usage_accumulated: bool = field(default=False, init=False, repr=False)
 
     def as_dict(self) -> Dict[str, Any]:
         return {
@@ -70,6 +122,7 @@ class ToolRound:
     tool_outputs: List[ToolOutput] = field(default_factory=list)
     retrieval_results: List[Any] = field(default_factory=list)
     tool_call_logs: List[Dict] = field(default_factory=list)
+    extracted_artifacts: List[Dict[str, Any]] = field(default_factory=list)
 
     def as_dict(self) -> Dict[str, Any]:
         return {
@@ -78,6 +131,7 @@ class ToolRound:
             "tool_outputs": [to.model_dump() for to in self.tool_outputs],
             "retrieval_results": self.retrieval_results,
             "tool_call_logs": self.tool_call_logs,
+            "num_extracted_artifacts": len(self.extracted_artifacts),
         }
 
 
@@ -97,12 +151,16 @@ class GenerationResult:
 
     logs: List[Dict] = field(default_factory=list)
 
+    retrieval_results: List[Any] = field(default_factory=list)
+
     inference_rounds: List[InferenceRound] = field(default_factory=list)
     tool_rounds: List[ToolRound] = field(default_factory=list)
 
     artifacts: List[Dict] = field(default_factory=list)
 
     persisted_message: Optional[Any] = None
+
+    _accumulated_round_ids: Set[int] = field(default_factory=set, init=False, repr=False)
 
     @property
     def content_text(self) -> Optional[str]:
@@ -125,7 +183,21 @@ class GenerationResult:
             outputs.extend(tr.tool_outputs)
         return outputs
 
-    def accumulate_usage(self, input_tokens: int, output_tokens: int):
+    @property
+    def all_retrieval_results(self) -> List[Any]:
+        results: List[Any] = list(self.retrieval_results)
+        for tr in self.tool_rounds:
+            results.extend(tr.retrieval_results)
+        return results
+
+    def accumulate_usage(self, input_tokens: int, output_tokens: int, round_index: Optional[int] = None):
+        if round_index is not None:
+            if round_index in self._accumulated_round_ids:
+                logger.warning(
+                    f"Usage for round {round_index} already accumulated; skipping to avoid double-counting."
+                )
+                return
+            self._accumulated_round_ids.add(round_index)
         self.total_input_tokens += input_tokens or 0
         self.total_output_tokens += output_tokens or 0
 
@@ -148,7 +220,9 @@ class GenerationResult:
             "total_input_tokens": self.total_input_tokens,
             "total_output_tokens": self.total_output_tokens,
             "num_logs": len(self.logs),
+            "num_retrieval_results": len(self.all_retrieval_results),
             "num_inference_rounds": len(self.inference_rounds),
+            "num_accumulated_rounds": len(self._accumulated_round_ids),
             "num_tool_rounds": len(self.tool_rounds),
             "total_tool_calls": self.total_tool_calls,
             "num_artifacts": len(self.artifacts),
@@ -210,10 +284,13 @@ class GenerationResultBuilder:
         ir.usage_dict = usage_dict
         ir.response_dict = response_dict
         ir.duration_ms = duration_ms
-        if usage_dict:
+        if usage_dict and not ir._usage_accumulated:
             self._result.accumulate_usage(
-                usage_dict.get("input_tokens", 0), usage_dict.get("output_tokens", 0)
+                usage_dict.get("input_tokens", 0),
+                usage_dict.get("output_tokens", 0),
+                round_index=ir.round_index,
             )
+            ir._usage_accumulated = True
         if function_calls:
             filtered = self._session.filter_user_function_calls(function_calls)
             if filtered:
@@ -231,6 +308,30 @@ class GenerationResultBuilder:
         self._result.tool_rounds.append(tr)
         return tr
 
+    def _consume_tool_run_event(
+        self,
+        tr: ToolRound,
+        event: Tuple[str, Any],
+    ):
+        event_type, payload = event
+        if event_type == TOOL_RUN_TYPE_TOOL_OUTPUT:
+            tool_output: ToolOutput = payload
+            tr.tool_outputs.append(tool_output)
+            extracted = _extract_artifacts_from_tool_output(tool_output)
+            if extracted:
+                tr.extracted_artifacts.extend(extracted)
+                self._result.artifacts.extend(extracted)
+        elif event_type == TOOL_RUN_TYPE_RETRIEVAL_RESULT:
+            tr.retrieval_results.extend(payload)
+            extracted = _extract_artifacts_from_retrieval(payload)
+            if extracted:
+                tr.extracted_artifacts.extend(extracted)
+                self._result.artifacts.extend(extracted)
+        elif event_type == TOOL_RUN_TYPE_LOG:
+            tr.tool_call_logs.append(payload)
+        else:
+            logger.warning(f"Unknown tool run event type: {event_type}")
+
     async def process_tool_calls(
         self,
         function_calls: List[Dict],
@@ -244,9 +345,8 @@ class GenerationResultBuilder:
             log=log,
         )
         tr.tool_call_logs.extend(use_logs)
-        async for tool_log in self._session.run_tools(function_calls, log=log):
-            if log:
-                tr.tool_call_logs.append(tool_log)
+        async for event in self._session.run_tools(function_calls, log=log):
+            self._consume_tool_run_event(tr, event)
         return tr
 
     async def process_tool_calls_with_debug(
@@ -266,12 +366,14 @@ class GenerationResultBuilder:
             logger.debug(f"tool_action_call_log_dict = {tool_action_call_log_dict}")
             yield f"data: {json.dumps(tool_action_call_log_dict)}\n\n"
 
-        async for tool_action_result_log_dict in self._session.run_tools(
+        async for event in self._session.run_tools(
             function_calls=function_calls, log=True
         ):
-            tr.tool_call_logs.append(tool_action_result_log_dict)
-            logger.debug(f"tool_action_result_log_dict = {tool_action_result_log_dict}")
-            yield f"data: {json.dumps(tool_action_result_log_dict)}\n\n"
+            self._consume_tool_run_event(tr, event)
+            event_type, payload = event
+            if event_type == TOOL_RUN_TYPE_LOG:
+                logger.debug(f"tool_action_result_log_dict = {payload}")
+                yield f"data: {json.dumps(payload)}\n\n"
 
     def add_artifact(self, artifact: Dict):
         self._result.artifacts.append(artifact)
@@ -287,17 +389,21 @@ class MessageFinalizationHelper:
             raise MessageGenerationInvalidRequestException("Chat is required to create a message.")
         if result.content_text is None:
             raise MessageGenerationException("Assistant message content is not available to persist.")
+        metadata = {
+            "num_tool_rounds": len(result.tool_rounds),
+            "total_tool_calls": result.total_tool_calls,
+            "num_artifacts": len(result.artifacts),
+            "num_retrieval_results": len(result.all_retrieval_results),
+        }
+        if result.artifacts:
+            metadata["artifacts"] = result.artifacts
         message = await message_ops.create(
             assistant_id=result.assistant_id,
             chat_id=result.chat_id,
             create_dict={
                 "role": MessageRole.ASSISTANT.value,
                 "content": MessageContent(text=result.content_text),
-                "metadata": {
-                    "num_tool_rounds": len(result.tool_rounds),
-                    "total_tool_calls": result.total_tool_calls,
-                    "num_artifacts": len(result.artifacts),
-                },
+                "metadata": metadata,
                 "logs": result.logs,
             },
             check_max_count=False,

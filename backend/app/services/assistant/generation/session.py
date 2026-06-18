@@ -26,12 +26,25 @@ from .result_builder import GenerationResult, GenerationResultBuilder
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["Session", "MESSAGE_CHUNK", "MESSAGE", "USAGE", "MESSAGE_RESPONSE"]
+__all__ = [
+    "Session",
+    "MESSAGE_CHUNK",
+    "MESSAGE",
+    "USAGE",
+    "MESSAGE_RESPONSE",
+    "TOOL_RUN_TYPE_LOG",
+    "TOOL_RUN_TYPE_TOOL_OUTPUT",
+    "TOOL_RUN_TYPE_RETRIEVAL_RESULT",
+]
 
 MESSAGE_CHUNK = 2
 MESSAGE = 3
 USAGE = 4
 MESSAGE_RESPONSE = 5
+
+TOOL_RUN_TYPE_LOG = "log"
+TOOL_RUN_TYPE_TOOL_OUTPUT = "tool_output"
+TOOL_RUN_TYPE_RETRIEVAL_RESULT = "retrieval_result"
 
 
 class Session(ABC):
@@ -201,6 +214,8 @@ class Session(ABC):
                         query_text=retrieval_query_text,
                     )
 
+                    self.result.retrieval_results.extend(retrieval_results)
+
                     if retrieval_log:
                         retrieval_log_output = build_retrieval_output_log_dict(
                             session_id=self.session_id,
@@ -336,6 +351,8 @@ class Session(ABC):
                 logger.debug(f"Retrieval query: {query_text}")
                 logger.debug(f"Retrieval result: {str(retrieval_results)[:200]}...")
 
+                yield TOOL_RUN_TYPE_RETRIEVAL_RESULT, retrieval_results
+
                 if log:
                     retrieval_output_log_dict = build_retrieval_output_log_dict(
                         session_id=self.session_id,
@@ -345,7 +362,7 @@ class Session(ABC):
                     )
                     if self.save_logs:
                         self.logs.append(retrieval_output_log_dict)
-                    yield retrieval_output_log_dict
+                    yield TOOL_RUN_TYPE_LOG, retrieval_output_log_dict
                 self.trace_collector.clear(function_call_id)
 
                 self.chat_completion_messages.append(
@@ -372,10 +389,11 @@ class Session(ABC):
                     )
                     if self.save_logs:
                         self.logs.append(tool_input_log_dict)
-                    yield tool_input_log_dict
+                    yield TOOL_RUN_TYPE_LOG, tool_input_log_dict
             tool_outputs: List[ToolOutput] = await run_tools(tool_inputs)
             for tool_output in tool_outputs:
                 self.chat_completion_messages.append(tool_output.to_function_message())
+                yield TOOL_RUN_TYPE_TOOL_OUTPUT, tool_output
 
                 if log:
                     tool_action_result_log_dict = build_tool_output_log_dict(
@@ -386,7 +404,7 @@ class Session(ABC):
                     )
                     if self.save_logs:
                         self.logs.append(tool_action_result_log_dict)
-                    yield tool_action_result_log_dict
+                    yield TOOL_RUN_TYPE_LOG, tool_action_result_log_dict
                 self.trace_collector.clear(tool_output.tool_call_id)
 
     async def inference(self, event_id: Optional[str] = None) -> Tuple[Dict, List, Dict, Dict]:
@@ -403,9 +421,6 @@ class Session(ABC):
         assistant_message_dict = completion_data["message"]
         function_calls = assistant_message_dict.get("function_calls")
         usage = completion_data.get("usage")
-        self.result.accumulate_usage(
-            usage.get("input_tokens", 0), usage.get("output_tokens", 0)
-        )
         return assistant_message_dict, function_calls, usage, completion_data
 
     async def stream_inference(self, message_chunk_object_name="MessageChunk", event_id: Optional[str] = None):
@@ -432,9 +447,6 @@ class Session(ABC):
                 yield MESSAGE, assistant_message_dict
                 usage = chunk.get("usage")
                 if usage:
-                    self.result.accumulate_usage(
-                        usage.get("input_tokens", 0), usage.get("output_tokens", 0)
-                    )
                     yield USAGE, usage
                 yield MESSAGE_RESPONSE, chunk
 
