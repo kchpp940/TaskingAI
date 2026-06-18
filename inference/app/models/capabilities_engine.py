@@ -16,23 +16,42 @@ Derivation order (highest priority first)
    e.g. a model whose YAML lists ``response_format`` in config_schemas
    implicitly supports JSON schema structured output.
 
-3. **Provider-level defaults**
-   e.g. OpenAI-compatible providers (``openai``, ``groq``, ``fireworks``, ...)
-   all support streaming SSE out of the box.
+3. **Provider-level defaults (low-risk capabilities only)**
+   Only ``stream`` is considered safe enough to default from provider type.
+   High-risk capabilities (``tools``, ``vision``, ``json_schema``) are **never**
+   auto-enabled by provider defaults because the same provider may host models
+   that do *not* support them.  Enabling them without an explicit declaration
+   would let requests pass validation and fail at inference time.
 
 4. **Safe fallback defaults**
    boolean fields default to ``False``, numeric fields to ``None``, and
    ``supported_response_formats`` to ``["text"]``.
 
 
+Conservative strategy for high-risk capabilities
+-------------------------------------------------
+
+``tools``, ``vision``, and ``json_schema`` can only be set to ``True`` via:
+
+  a) An explicit declaration in the YAML ``properties`` section, **or**
+  b) A user-supplied model-level properties override (wildcard/custom models), **or**
+  c) The ``config_schemas`` heuristic (``response_format`` → ``json_schema``).
+
+Provider-level knowledge of which providers *tend* to support these is still
+collected in this module — but it is used **only for structured warning /
+suggestion output**, never to auto-enable the capability in the returned
+``ModelCapabilities`` object.
+
+
 Structured warnings
 -------------------
 
-Whenever a capability is filled in by a *heuristic* (rule 2 or 3) rather than
-an explicit declaration (rule 1), a structured JSON-line warning is emitted.
-You can grep the startup logs with
+Whenever a high-risk capability could have been auto-enabled by a provider
+default but was **not** (because of the conservative strategy), a structured
+JSON-line warning is emitted suggesting the maintainer add an explicit
+declaration.  You can grep the startup logs with
 
-    grep 'capabilities_derived' <logfile>
+    grep 'capabilities_suggestion' <logfile>
 
 to get a machine-readable list of model schemas that should be patched with
 explicit ``properties`` fields.
@@ -50,10 +69,13 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Rule 3 – Provider-level defaults
+# Provider-level knowledge (used for warnings / suggestions ONLY)
 # ---------------------------------------------------------------------------
+# These sets record which providers are *known* to generally support a
+# capability, but they must NOT be used to auto-enable the capability in
+# the returned ModelCapabilities — that would be too aggressive and could
+# cause false-positives for models within the provider that lack support.
 
-# All providers whose API is OpenAI-compatible support streaming SSE.
 _OPENAI_COMPATIBLE_PROVIDERS = frozenset(
     {
         "openai",
@@ -78,8 +100,6 @@ _OPENAI_COMPATIBLE_PROVIDERS = frozenset(
     }
 )
 
-# Providers whose latest models are known to support tool/function calling
-# out of the box (older models may still need YAML-level opt-out).
 _TOOL_CALLING_PROVIDERS = frozenset(
     {
         "openai",
@@ -97,7 +117,6 @@ _TOOL_CALLING_PROVIDERS = frozenset(
     }
 )
 
-# Providers whose official APIs support structured output / response_format.
 _JSON_SCHEMA_PROVIDERS = frozenset(
     {
         "openai",
@@ -114,16 +133,18 @@ _JSON_SCHEMA_PROVIDERS = frozenset(
     }
 )
 
+_HIGH_RISK_CAPABILITIES = frozenset({"tools", "vision", "json_schema"})
 
-def provider_default_stream(provider_id: str) -> bool:
+
+def provider_suggests_stream(provider_id: str) -> bool:
     return provider_id in _OPENAI_COMPATIBLE_PROVIDERS
 
 
-def provider_default_tools(provider_id: str) -> bool:
+def provider_suggests_tools(provider_id: str) -> bool:
     return provider_id in _TOOL_CALLING_PROVIDERS
 
 
-def provider_default_json_schema(provider_id: str) -> bool:
+def provider_suggests_json_schema(provider_id: str) -> bool:
     return provider_id in _JSON_SCHEMA_PROVIDERS
 
 
@@ -132,7 +153,6 @@ def provider_default_json_schema(provider_id: str) -> bool:
 # ---------------------------------------------------------------------------
 
 _RESPONSE_FORMAT_CONFIG_IDS = frozenset({"response_format"})
-_VISION_CONFIG_IDS = frozenset({"vision"})  # not a real config id, but a future-proof marker
 
 
 def derive_from_config_schemas(
@@ -146,6 +166,10 @@ def derive_from_config_schemas(
       - Any schema with ``config_id == "response_format"`` implies
         ``json_schema=True`` and a supported response format list of
         ``["text", "json_object", "json_schema"]``.
+
+    This is considered a **reliable** derivation because the provider code
+    explicitly implements response_format handling, so it is safe to enable
+    json_schema capability based on it.
     """
 
     hints: Dict[str, Any] = {}
@@ -163,11 +187,9 @@ def derive_from_config_schemas(
 
 
 # ---------------------------------------------------------------------------
-# Rule 1-2-3 Aggregation
+# Aggregation
 # ---------------------------------------------------------------------------
 
-# Fields that are considered "fully declared" when present in explicit
-# properties; missing any of these will trigger a warning.
 _ALL_CAPABILITY_FIELDS = (
     "stream",
     "tools",
@@ -183,30 +205,35 @@ def derive_capabilities(
     *,
     provider_id: str,
     model_schema_id: str,
-    model_type: str,  # "chat_completion" | "text_embedding" | "rerank" | "wildcard"
+    model_type: str,
     explicit_properties: Optional[Dict[str, Any]],
     config_schemas: Optional[List[Dict[str, Any]]],
     emit_warnings: bool = True,
 ) -> Tuple[ModelCapabilities, Dict[str, str]]:
     """
-    Derive a unified ``ModelCapabilities`` object by applying the four rules
-    outlined in the module docstring.
+    Derive a unified ``ModelCapabilities`` object.
+
+    **Conservative strategy**: ``tools``, ``vision``, ``json_schema`` can only
+    be ``True`` when explicitly declared in YAML properties or derived from
+    ``config_schemas``.  Provider-level knowledge is used solely for structured
+    warning / suggestion output — it never auto-enables a high-risk capability.
+
+    ``stream`` is low-risk and *is* auto-enabled for OpenAI-compatible providers
+    when no explicit declaration exists.
 
     Returns
     -------
     (capabilities, derivation_sources)
-        ``derivation_sources`` is a dict mapping each capability field to one of
-        ``"explicit"`` | ``"config_schemas"`` | ``"provider_default"`` |
-        ``"safe_default"``, useful for emitting structured warnings and for
-        tests.
+        ``derivation_sources`` maps each field to one of
+        ``"explicit"`` | ``"config_schemas"`` | ``"provider_suggestion"`` |
+        ``"safe_default"``.  ``"provider_suggestion"`` means the provider
+        *could* support it but the field was left at its safe default.
     """
 
     props = explicit_properties or {}
     config_schemas = config_schemas or []
 
     # ------ normalise legacy names ------
-    # properties files use the legacy names; translate them to the canonical
-    # capabilities keys on the fly.
     explicit: Dict[str, Any] = {}
     if "streaming" in props:
         explicit["stream"] = bool(props["streaming"])
@@ -223,45 +250,63 @@ def derive_capabilities(
     if isinstance(props.get("supported_response_formats"), list):
         explicit["supported_response_formats"] = list(props["supported_response_formats"])
 
-    # ------ rule 2: config schemas ------
+    # ------ rule 2: config schemas (reliable derivation) ------
     config_hints = derive_from_config_schemas(config_schemas)
 
-    # ------ rule 3: provider defaults ------
-    provider_hints: Dict[str, Any] = {}
+    # ------ rule 3: provider suggestions (NOT auto-enabled for high-risk) ------
+    provider_suggestions: Dict[str, Any] = {}
     if model_type == "chat_completion" or model_type == "wildcard":
-        provider_hints["stream"] = provider_default_stream(provider_id)
-        provider_hints["tools"] = provider_default_tools(provider_id)
-        if provider_default_json_schema(provider_id):
-            provider_hints["json_schema"] = True
-            provider_hints["supported_response_formats"] = [
+        provider_suggestions["stream"] = provider_suggests_stream(provider_id)
+        provider_suggestions["tools"] = provider_suggests_tools(provider_id)
+        if provider_suggests_json_schema(provider_id):
+            provider_suggestions["json_schema"] = True
+            provider_suggestions["supported_response_formats"] = [
                 ResponseFormatType.TEXT,
                 ResponseFormatType.JSON_OBJECT,
                 ResponseFormatType.JSON_SCHEMA,
             ]
 
-    # ------ apply priority: rule 1 > rule 2 > rule 3 > safe default ------
+    # ------ resolve with conservative strategy ------
+    # stream: low-risk → provider suggestion IS used as a fallback
+    # tools/vision/json_schema: high-risk → provider suggestion NOT used as fallback
     sources: Dict[str, str] = {}
 
-    def resolve(field: str, safe_default: Any) -> Tuple[Any, str]:
+    def resolve(
+        field: str,
+        safe_default: Any,
+        allow_provider_fallback: bool = True,
+    ) -> Tuple[Any, str]:
         if field in explicit and explicit[field] is not None:
             return explicit[field], "explicit"
         if field in config_hints and config_hints[field] is not None:
             return config_hints[field], "config_schemas"
-        if field in provider_hints and provider_hints[field] is not None:
-            return provider_hints[field], "provider_default"
+        if (
+            allow_provider_fallback
+            and field in provider_suggestions
+            and provider_suggestions[field] is not None
+        ):
+            return provider_suggestions[field], "provider_suggestion"
+        if (
+            not allow_provider_fallback
+            and field in provider_suggestions
+            and provider_suggestions[field] is not None
+        ):
+            # Record that the provider *suggests* it but do NOT use the value
+            # — fall through to safe_default instead.
+            _ = provider_suggestions[field]  # acknowledged but ignored
+            # We still track that a suggestion existed for warning output.
+            return safe_default, "provider_suggestion"
         return safe_default, "safe_default"
 
-    stream, sources["stream"] = resolve("stream", False)
-    tools, sources["tools"] = resolve("tools", False)
-    vision, sources["vision"] = resolve("vision", False)
-    json_schema, sources["json_schema"] = resolve("json_schema", False)
-    max_context_tokens, sources["max_context_tokens"] = resolve("max_context_tokens", None)
-    max_output_tokens, sources["max_output_tokens"] = resolve("max_output_tokens", None)
+    stream, sources["stream"] = resolve("stream", False, allow_provider_fallback=True)
+    tools, sources["tools"] = resolve("tools", False, allow_provider_fallback=False)
+    vision, sources["vision"] = resolve("vision", False, allow_provider_fallback=False)
+    json_schema, sources["json_schema"] = resolve("json_schema", False, allow_provider_fallback=False)
+    max_context_tokens, sources["max_context_tokens"] = resolve("max_context_tokens", None, allow_provider_fallback=False)
+    max_output_tokens, sources["max_output_tokens"] = resolve("max_output_tokens", None, allow_provider_fallback=False)
 
-    # supported_response_formats needs extra care because its values are lists
-    # and we also want to keep `json_schema` consistent with the list.
     srf_value, sources["supported_response_formats"] = resolve(
-        "supported_response_formats", [ResponseFormatType.TEXT]
+        "supported_response_formats", [ResponseFormatType.TEXT], allow_provider_fallback=False,
     )
     supported_response_formats: List[str]
     if isinstance(srf_value, list):
@@ -272,12 +317,7 @@ def derive_capabilities(
     # Consistency: if json_schema=True but json_schema not in formats, append it.
     if json_schema and ResponseFormatType.JSON_SCHEMA not in supported_response_formats:
         supported_response_formats = [*supported_response_formats, ResponseFormatType.JSON_SCHEMA]
-    # Consistency: if only text in formats, but json_object was probably wanted
-    # (e.g. provider default), extend it.
-    if (
-        json_schema
-        and supported_response_formats == [ResponseFormatType.TEXT]
-    ):
+    if json_schema and supported_response_formats == [ResponseFormatType.TEXT]:
         supported_response_formats = [
             ResponseFormatType.TEXT,
             ResponseFormatType.JSON_OBJECT,
@@ -296,28 +336,43 @@ def derive_capabilities(
 
     # ------ structured warnings ------
     if emit_warnings and model_type in ("chat_completion", "wildcard"):
-        heuristic_fields = [
-            field for field in _ALL_CAPABILITY_FIELDS if sources[field] != "explicit"
-        ]
-        if heuristic_fields:
-            logger.warning(
-                "capabilities_derived "
-                + str(
-                    {
-                        "event": "capabilities_derived",
-                        "model_schema_id": model_schema_id,
-                        "provider_id": provider_id,
-                        "derived_fields": {
-                            field: sources[field] for field in heuristic_fields
-                        },
-                        "capabilities": caps.to_dict(),
-                        "action_needed": (
-                            "Add explicit properties to the YAML for: "
-                            + ", ".join(heuristic_fields)
-                        ),
-                    }
+        # Capabilities that were derived from heuristics (not explicit)
+        derived_fields = {
+            field: sources[field]
+            for field in _ALL_CAPABILITY_FIELDS
+            if sources[field] != "explicit"
+        }
+
+        # High-risk capabilities where the provider *suggests* support
+        # but we held back — these are actionable suggestions
+        suggestions = {}
+        for field in _HIGH_RISK_CAPABILITIES:
+            if sources[field] == "provider_suggestion":
+                suggestions[field] = True
+
+        if derived_fields or suggestions:
+            payload = {
+                "event": "capabilities_derived",
+                "model_schema_id": model_schema_id,
+                "provider_id": provider_id,
+                "derived_fields": derived_fields,
+                "capabilities": caps.to_dict(),
+            }
+            if suggestions:
+                payload["suggested_but_not_enabled"] = suggestions
+                payload["action_needed"] = (
+                    "The following capabilities are likely supported by this "
+                    "provider but were not explicitly declared. Add them to the "
+                    "YAML properties to enable: "
+                    + ", ".join(suggestions.keys())
                 )
-            )
+            else:
+                payload["action_needed"] = (
+                    "Some capabilities were derived heuristically. "
+                    "Consider adding explicit properties for: "
+                    + ", ".join(derived_fields.keys())
+                )
+            logger.warning("capabilities_derived " + str(payload))
 
     return caps, sources
 
@@ -325,7 +380,9 @@ def derive_capabilities(
 __all__ = [
     "derive_capabilities",
     "derive_from_config_schemas",
-    "provider_default_stream",
-    "provider_default_tools",
-    "provider_default_json_schema",
+    "provider_suggests_stream",
+    "provider_suggests_tools",
+    "provider_suggests_json_schema",
+    "HIGH_RISK_CAPABILITIES",
 ]
+
