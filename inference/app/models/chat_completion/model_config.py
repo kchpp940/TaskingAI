@@ -1,7 +1,7 @@
 from typing import List, Optional, Union
 
 from pydantic import BaseModel, Field
-from app.models import BaseModelProperties, BaseModelPricing, ModelSchema, ModelCapabilities, ResponseFormatType
+from app.models import BaseModelProperties, BaseModelPricing, ModelSchema
 from app.models.model_config import validate_config_value
 from app.error import raise_http_error, ErrorCode
 
@@ -39,14 +39,6 @@ class ChatCompletionModelProperties(BaseModelProperties):
         False,
         description="Indicates if the model accepts image as input.",
     )
-    json_schema: bool = Field(
-        False,
-        description="Indicates if the model supports structured output with JSON schema.",
-    )
-    supported_response_formats: Optional[List[str]] = Field(
-        None,
-        description="List of supported response formats. Defaults to ['text'] if not specified.",
-    )
     input_token_limit: Optional[int] = Field(
         None,
         description="The maximum number of tokens that can be included in the model's input.",
@@ -55,24 +47,6 @@ class ChatCompletionModelProperties(BaseModelProperties):
         None,
         description="The maximum number of tokens that the model can generate as output.",
     )
-
-    def to_capabilities(self) -> ModelCapabilities:
-        """
-        Convert legacy properties to the unified ModelCapabilities schema.
-        """
-        formats = self.supported_response_formats or [ResponseFormatType.TEXT]
-        if self.json_schema and ResponseFormatType.JSON_SCHEMA not in formats:
-            formats = [*formats, ResponseFormatType.JSON_SCHEMA]
-
-        return ModelCapabilities(
-            stream=self.streaming,
-            tools=self.function_call,
-            vision=self.vision,
-            json_schema=self.json_schema,
-            max_context_tokens=self.input_token_limit,
-            max_output_tokens=self.output_token_limit,
-            supported_response_formats=formats,
-        )
 
 
 class ChatCompletionModelPricing(BaseModelPricing):
@@ -111,39 +85,16 @@ def validate_chat_completion_model(
     :param verify: whether to verify the model
     """
     model_schema_id = model_schema.model_schema_id
-    capabilities = model_schema.get_capabilities()
-
-    if stream and not capabilities.stream:
+    if stream and not model_schema.allow_stream():
         raise_http_error(ErrorCode.REQUEST_VALIDATION_ERROR, f"model {model_schema_id} does not support streaming.")
 
-    if function_call and not capabilities.tools:
-        raise_http_error(
-            ErrorCode.REQUEST_VALIDATION_ERROR, f"model {model_schema_id} does not support function/tool call."
-        )
+    # if function_call and not model_schema.allow_function_call():
+    #     raise_http_error(ErrorCode.REQUEST_VALIDATION_ERROR, f"model {model_schema_id} does not support function call.")
 
-    if vision_input and not capabilities.vision:
+    if vision_input and not model_schema.allow_vision_input():
         raise_http_error(
             ErrorCode.REQUEST_VALIDATION_ERROR, f"model {model_schema_id} does not support vision message."
         )
-
-    # validate response_format / json_schema capability
-    response_format = configs.response_format
-    if response_format:
-        fmt = response_format.lower() if isinstance(response_format, str) else None
-        if fmt in ("json_object", "json", "json_schema"):
-            normalized = "json_schema" if fmt == "json_schema" else "json_object"
-            if not capabilities.json_schema and normalized == "json_schema":
-                raise_http_error(
-                    ErrorCode.REQUEST_VALIDATION_ERROR,
-                    f"model {model_schema_id} does not support structured output with JSON schema. "
-                    "Use a model that declares the `json_schema` capability.",
-                )
-            if normalized not in capabilities.supported_response_formats:
-                raise_http_error(
-                    ErrorCode.REQUEST_VALIDATION_ERROR,
-                    f"model {model_schema_id} does not support response_format='{normalized}'. "
-                    f"Supported formats: {capabilities.supported_response_formats}.",
-                )
 
     c_dict = configs.model_dump()
     constraints_dict = {config_schema["config_id"]: config_schema for config_schema in model_schema.config_schemas}

@@ -1,11 +1,11 @@
 import json
-from typing import Dict, List
+from typing import Dict, List, Any
 import aiohttp
 from aiohttp.client_exceptions import ClientResponseError
 
 from tkhelper.utils import ResponseWrapper
 
-from app.models import BundleInstance
+from app.models import BundleInstance, Artifact
 from app.config import CONFIG
 from app.operators import bundle_instance_ops
 
@@ -63,27 +63,35 @@ async def run_plugin(
                 data_dict = json.loads(data_bytes.decode("utf-8"))
             except json.JSONDecodeError:
                 # Handle non-JSON response or decode error
-                return {"status": 500, "data": {"error": "Failed to decode the plugin response"}}
+                return {"status": 500, "data": {"error": "Failed to decode the plugin response"}, "artifacts": []}
 
             response_wrapper = ResponseWrapper(response.status, data_dict)
 
             if response.status == 200:
                 data = response_wrapper.json().get("data")
-                return {"status": data["status"], "data": data["data"]}
+                artifacts_data = data.get("artifacts", [])
+                artifacts = []
+                for artifact_data in artifacts_data:
+                    try:
+                        artifacts.append(Artifact(**artifact_data).model_dump())
+                    except Exception:
+                        pass
+                return {"status": data["status"], "data": data["data"], "artifacts": artifacts}
 
-            return {"status": response.status, "data": response_wrapper.json().get("error")}
+            return {"status": response.status, "data": response_wrapper.json().get("error"), "artifacts": []}
 
     except ClientResponseError as e:
         if "Response too large" in e.message:
             return {
                 "status": e.status,
                 "data": {"error": f"Response data is too large. Maximum character length is {max_size}."},
+                "artifacts": [],
             }
         else:
-            return {"status": e.status, "data": {"error": f"API call failed with status {e.status}"}}
+            return {"status": e.status, "data": {"error": f"API call failed with status {e.status}"}, "artifacts": []}
 
     except Exception as e:
-        return {"status": 500, "data": {"error": "Failed to execute the plugin"}}
+        return {"status": 500, "data": {"error": "Failed to execute the plugin"}, "artifacts": []}
 
 
 async def get_bundle_registered_dict(

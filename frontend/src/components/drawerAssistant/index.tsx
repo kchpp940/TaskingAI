@@ -1,37 +1,15 @@
-import { Input, Button, Select, InputNumber, Tooltip } from 'antd';
+import { Input, Button, Select, InputNumber } from 'antd';
 import './drawerAssistant.scss'
 import ModalSelect from '../modalSelect/index'
 import DeleteInputIcon from '../../assets/img/deleteInputIcon.svg?react'
 import { PlusOutlined, RightOutlined } from '@ant-design/icons';
 import { ChangeEvent, useImperativeHandle, forwardRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import PluginComponent from '../pluginComponent/index'
-import { mergeCapabilities, capabilityUnsupportedReason } from '../../utils/capabilities';
 const DrawerAssistant = forwardRef((props: any, ref: any) => {
     const { t } = useTranslation()
-    const {
-        handleAddPromptInput, handleNewBundle, modelName, drawerTitle, openDrawer,
-        selectedPluginGroup, selectedActionsSelected, handleNewActionModal,
-        topk, maxTokens, bundilesList, handleMaxToken, handleToks, handleNewCollection,
-        selectedCollectionList, collectionHasMore, actionHasMore, retrievalList, actionList,
-        handleMemoryChange1, handleRetrievalConfigChange1, retrievalConfig,
-        inputValue1, memoryValue, handleInputValueOne, handleInputValueTwo, inputValue2,
-        selectedActionsRows, drawerName, systemPromptTemplate, handleDeletePromptInput,
-        handleInputPromptChange, handleSelectModelId, handleChangeName, drawerDesc,
-        handleDescriptionChange,
-        /**
-         * The parent component may pass a list of fully-hydrated Model objects
-         * (with `capabilities` / `properties`) so this drawer can disable
-         * incompatible options. Falls back to an empty array when not provided
-         * (nothing disabled, backward compatible).
-         */
-        selectedModels = [],
-    } = props
-
-    const caps = useMemo(() => mergeCapabilities(selectedModels), [selectedModels])
-    const toolsDisabled = !caps.tools
-    const toolsDisabledReason = capabilityUnsupportedReason('tools', selectedModels.length)
+    const { handleAddPromptInput, handleNewBundle,modelName,drawerTitle,openDrawer,selectedPluginGroup,selectedActionsSelected, handleNewActionModal, topk, maxTokens, bundilesList, handleMaxToken, handleToks, handleNewCollection, selectedCollectionList, collectionHasMore, actionHasMore, retrievalList, actionList, handleMemoryChange1, handleRetrievalConfigChange1, retrievalConfig, inputValue1, memoryValue, handleInputValueOne, handleInputValueTwo, inputValue2, selectedActionsRows, drawerName, systemPromptTemplate, handleDeletePromptInput, handleInputPromptChange, handleSelectModelId, handleChangeName, drawerDesc, handleDescriptionChange } = props
     const [collectionModal, setCollectionModal] = useState(false)
     const [actionModal, setActionModal] = useState(false)
     const [pluginModal, setPluginModal] = useState(false)
@@ -440,14 +418,7 @@ const DrawerAssistant = forwardRef((props: any, ref: any) => {
                             options={[
                                 {
                                     value: 'function_call',
-                                    label: (
-                                        <Tooltip
-                                            title={toolsDisabled ? toolsDisabledReason : undefined}
-                                        >
-                                            <span>Function Call</span>
-                                        </Tooltip>
-                                    ),
-                                    disabled: toolsDisabled,
+                                    label: 'Function Call',
                                 },
                                 {
                                     value: 'user_message',
@@ -509,16 +480,8 @@ const DrawerAssistant = forwardRef((props: any, ref: any) => {
                         </div>
                     )
                 })}
-                <div style={{ marginBottom: '24px' }} className={`add-bottom ${(pluginActionList.length === 10 || toolsDisabled) && 'disabled-button'}`} >
-                    <Tooltip title={toolsDisabled ? toolsDisabledReason : undefined}>
-                        <Button
-                            onClick={handleAddTool}
-                            disabled={pluginActionList.length === 10 || toolsDisabled}
-                            icon={<PlusOutlined />}
-                        >
-                            Add
-                        </Button>
-                    </Tooltip>
+                <div style={{ marginBottom: '24px' }} className={`add-bottom ${pluginActionList.length === 10 && 'disabled-button'}`} >
+                    <Button onClick={handleAddTool} disabled={pluginActionList.length === 10} icon={<PlusOutlined />}>Add</Button>
                     <span>{pluginActionList.length}/10</span>
                 </div>
             </div>

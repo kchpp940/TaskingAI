@@ -98,29 +98,8 @@ def adapt_openai_chat_completion_input(data: OpenaiChatCompletionRequest) -> Cha
             )
             for tool in data.tools
         ]
-
-    # forward response_format into configs
-    configs = None
-    if data.response_format is not None:
-        configs = {}
-        if isinstance(data.response_format, str):
-            fmt = data.response_format.lower()
-            if fmt in ("json", "json_object"):
-                configs["response_format"] = "json_object"
-            elif fmt == "json_schema":
-                configs["response_format"] = "json_schema"
-            else:
-                configs["response_format"] = data.response_format
-        elif hasattr(data.response_format, "type"):
-            configs["response_format"] = data.response_format.type
-
     return ChatCompletionRequest(
-        model_id=model_id,
-        messages=messages,
-        function_call=function_call,
-        functions=functions,
-        stream=data.stream,
-        configs=configs,
+        model_id=model_id, messages=messages, function_call=function_call, functions=functions, stream=data.stream
     )
 
 

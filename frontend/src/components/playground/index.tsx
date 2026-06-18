@@ -48,6 +48,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import './index.css'
 import { fetchAssistantsData } from '@/Redux/actions.ts'
 import MarkdownMessageBlock from '@taskingai/taskingai-markdown'
+import ArtifactRenderer, { Artifact } from '../artifactRenderer'
 const origin = window.location.origin;
 const plainOptions = [
     { label: 'Stream', value: 1 },
@@ -157,6 +158,7 @@ function Playground() {
     const [topk, setTopk] = useState(3)
     const [maxTokens, setMaxToken] = useState(4096)
     const [pluginModalOpen, setPluginModalOpen] = useState(false)
+    const [currentArtifacts, setCurrentArtifacts] = useState<Artifact[]>([])
 
     const handleCopy = (text: string) => {
         const clipboard = new ClipboardJS('.icon-copy', {
@@ -1294,6 +1296,15 @@ function Playground() {
 
             const data1 = inputResult?.find((item1: any) => (item1.event_id === item.event_id))
             const data2: any = outputResult?.find((item1: any) => (item1.event_id === item.event_id))
+            
+            let artifacts: Artifact[] = []
+            if (data2?.content?.artifacts) {
+                artifacts = data2.content.artifacts
+            } else if (item.content?.artifacts) {
+                artifacts = item.content.artifacts
+            }
+            setCurrentArtifacts(artifacts)
+            
             if (data1) {
                 delete data1.color
                 const data3 = JSON.stringify(data1, null, 4)
@@ -1678,6 +1689,16 @@ function Playground() {
                             <TextArea autoSize={true} value={chatCompletionResult} disabled />
                         </div>
                     }]}></Collapse>
+                {currentArtifacts.length > 0 && (
+                    <Collapse className={styles['collapse-drawer']} defaultActiveKey={['3']} expandIconPosition='end' items={[
+                        {
+                            key: '3',
+                            label: `Artifacts (${currentArtifacts.length})`,
+                            children: <div className={styles['content-drawer']}>
+                                <ArtifactRenderer artifacts={currentArtifacts} />
+                            </div>
+                        }]}></Collapse>
+                )}
 
             </Drawer>
             <Drawer width={700} open={contentErrorDrawer} closeIcon={<img src={closeIcon} alt="closeIcon" className={styles['img-icon-close']} />} onClose={handleCloseContentErrorDrawer} title='Chat Completion'>

@@ -90,17 +90,26 @@ def build_tool_output_log_dict(
     tool_output: ToolOutput,
     duration_ms: Optional[int] = None,
 ):
-    output_str = _truncate_text(str(tool_output.content))
+    artifact_count = len(tool_output.artifacts) if hasattr(tool_output, 'artifacts') else 0
+    artifact_summary = ""
+    if artifact_count > 0:
+        artifact_types = [a.type.value for a in tool_output.artifacts]
+        artifact_summary = f", {artifact_count} artifacts ({', '.join(set(artifact_types))})"
+    
+    output_str = _truncate_text(str(tool_output.data))
     return MessageGenerationLog(
         session_id=session_id,
         event="tool",
         event_id=event_id,
         event_step="output",
         timestamp=current_timestamp_int_milliseconds(),
-        content=tool_output.model_dump(),
+        content={
+            **tool_output.model_dump(),
+            "artifacts": [a.model_dump() for a in tool_output.artifacts] if hasattr(tool_output, 'artifacts') else [],
+        },
         status="success",
         duration_ms=duration_ms,
-        input_summary=f"result: {output_str}",
+        input_summary=f"result: {output_str}{artifact_summary}",
     ).model_dump(exclude_none=True)
 
 

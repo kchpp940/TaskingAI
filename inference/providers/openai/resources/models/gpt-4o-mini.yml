@@ -9,11 +9,6 @@ properties:
   vision: true
   function_call: true
   streaming: true
-  json_schema: true
-  supported_response_formats:
-    - text
-    - json_object
-    - json_schema
   input_token_limit: 128000
   output_token_limit: 4096
 

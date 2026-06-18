@@ -1,4 +1,4 @@
-from typing import Optional, Any, List
+from typing import Optional, Any
 from pydantic import BaseModel, Field
 from typing import Dict, get_type_hints
 from abc import ABC, abstractmethod
@@ -9,8 +9,6 @@ __all__ = [
     "BaseSuccessListResponse",
     "BaseModelProperties",
     "BaseModelPricing",
-    "ResponseFormatType",
-    "ModelCapabilities",
 ]
 
 
@@ -29,51 +27,6 @@ class BaseSuccessListResponse(BaseModel):
     fetched_count: int
     total_count: Optional[int] = Field(None)
     has_more: Optional[bool] = Field(None)
-
-
-class ResponseFormatType(str):
-    TEXT = "text"
-    JSON_OBJECT = "json_object"
-    JSON_SCHEMA = "json_schema"
-
-
-class ModelCapabilities(BaseModel):
-    """
-    Unified model capability declaration.
-    All providers should expose their model capabilities through this schema.
-    """
-
-    stream: bool = Field(
-        False,
-        description="Whether the model supports streaming output via SSE.",
-    )
-    tools: bool = Field(
-        False,
-        description="Whether the model supports tool/function calling.",
-    )
-    vision: bool = Field(
-        False,
-        description="Whether the model accepts image input (multimodal).",
-    )
-    json_schema: bool = Field(
-        False,
-        description="Whether the model supports structured output with JSON schema.",
-    )
-    max_context_tokens: Optional[int] = Field(
-        None,
-        description="Maximum number of tokens the model accepts as context (input + output).",
-    )
-    max_output_tokens: Optional[int] = Field(
-        None,
-        description="Maximum number of tokens the model can generate in a single response.",
-    )
-    supported_response_formats: List[str] = Field(
-        default_factory=lambda: [ResponseFormatType.TEXT],
-        description="List of supported response formats: 'text', 'json_object', 'json_schema'.",
-    )
-
-    def to_dict(self) -> Dict[str, Any]:
-        return self.model_dump(exclude_none=True)
 
 
 class BaseModelProperties(BaseModel):
@@ -111,3 +64,4 @@ class BaseModelPricing(BaseModel):
         ...,
         description="The currency of the price.",
     )
+

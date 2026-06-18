@@ -4,7 +4,7 @@ from typing import Dict, List
 from fastapi import APIRouter
 
 from app.config import CONFIG
-from app.models import BundleInstance, Tool, ToolInput, ToolOutput, ToolRef, ToolType
+from app.models import BundleInstance, Tool, ToolInput, ToolOutput, ToolRef, ToolType, Artifact
 from app.operators import action_ops, bundle_instance_ops
 from app.services.tool.plugin.cache import get_bundle, i18n_text
 from tkhelper.error import raise_request_validation_error
@@ -118,6 +118,13 @@ async def run_tools(tool_inputs: List[ToolInput]) -> List[ToolOutput]:
     tool_outputs: List[ToolOutput] = []
     for i, tool in enumerate(tool_inputs):
         if tool.type == ToolType.ACTION or tool.type == ToolType.PLUGIN:
+            artifacts_data = results[i].get("artifacts", [])
+            artifacts = []
+            for artifact_data in artifacts_data:
+                try:
+                    artifacts.append(Artifact(**artifact_data))
+                except Exception:
+                    pass
             tool_outputs.append(
                 ToolOutput(
                     type=tool.type,
@@ -125,6 +132,7 @@ async def run_tools(tool_inputs: List[ToolInput]) -> List[ToolOutput]:
                     tool_call_id=tool.tool_call_id,
                     status=results[i].get("status"),
                     data=results[i].get("data"),
+                    artifacts=artifacts,
                 )
             )
 

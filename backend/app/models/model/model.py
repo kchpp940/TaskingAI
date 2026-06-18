@@ -2,14 +2,6 @@ from typing import Dict, List, Optional
 from pydantic import BaseModel
 from tkhelper.models import ModelEntity
 from tkhelper.utils import generate_random_id, load_json_attr
-from .capabilities_engine import (
-    derive_model_capabilities,
-    allow_stream as caps_allow_stream,
-    allow_tools as caps_allow_tools,
-    allow_vision as caps_allow_vision,
-    allow_json_schema as caps_allow_json_schema,
-    supports_response_format as caps_supports_response_format,
-)
 
 __all__ = ["Model", "ModelFallback", "ModelFallbackConfig"]
 
@@ -49,31 +41,6 @@ class Model(ModelEntity):
 
         return get_provider(self.provider_id)
 
-    def get_capabilities(self) -> Dict:
-        """
-        Get unified capabilities declaration for this specific Model instance.
-
-        Priority (highest first, identical to inference derive_capabilities()
-        plus model-level override layer):
-
-          1. schema-level ``capabilities`` (from inference)
-          2. model-level ``properties`` (user-filled for wildcard/custom models)
-          3. schema-level legacy ``properties``
-          4. config_schemas heuristic
-          5. provider defaults
-          6. safe defaults
-        """
-        schema = self.model_schema()
-        return derive_model_capabilities(
-            provider_id=self.provider_id,
-            model_schema_id=self.model_schema_id,
-            model_type=self.type or (schema.type.value if schema and hasattr(schema.type, "value") else str(schema.type)),
-            schema_capabilities=(schema.capabilities if schema else None),
-            model_properties=self.properties,
-            schema_properties=(schema.properties if schema else None),
-            config_schemas=(schema.config_schemas if schema else None),
-        )
-
     def is_chat_completion(self):
         return self.type == "chat_completion"
 
@@ -87,19 +54,10 @@ class Model(ModelEntity):
         return self.provider_id == "custom_host"
 
     def allow_function_call(self):
-        return caps_allow_tools(self.get_capabilities())
+        return self.type == "chat_completion" and self.properties.get("function_call", False)
 
     def allow_streaming(self):
-        return caps_allow_stream(self.get_capabilities())
-
-    def allow_vision_input(self):
-        return caps_allow_vision(self.get_capabilities())
-
-    def allow_json_schema(self):
-        return caps_allow_json_schema(self.get_capabilities())
-
-    def supports_response_format(self, fmt: str) -> bool:
-        return caps_supports_response_format(self.get_capabilities(), fmt)
+        return self.type == "chat_completion" and self.properties.get("streaming", False)
 
     @classmethod
     def build(cls, row: Dict):
@@ -141,7 +99,6 @@ class Model(ModelEntity):
             "name": self.name,
             "type": self.type,
             "properties": model_schema.properties or self.properties,
-            "capabilities": self.get_capabilities(),
             "fallbacks": self.fallbacks.model_dump() if self.fallbacks else None,
             "configs": self.configs,
             "display_credentials": self.display_credentials,

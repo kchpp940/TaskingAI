@@ -2,8 +2,7 @@ from enum import Enum
 from pydantic import BaseModel, ValidationError
 from typing import Dict, Optional, List, Tuple
 from .utils import i18n_text
-from .base import BaseModelProperties, BaseModelPricing, ModelCapabilities
-from .capabilities_engine import derive_capabilities
+from .base import BaseModelProperties, BaseModelPricing
 from app.error import raise_http_error, ErrorCode
 from .model_config import load_config
 import warnings
@@ -34,56 +33,38 @@ class ModelSchema(BaseModel):
     config_schemas: List[Dict]
     pricing: Optional[BaseModelPricing]
 
-    # runtime cache for derived capabilities — populated once per schema
-    _capabilities_cache: Optional[Tuple[ModelCapabilities, Dict[str, str]]] = None
-
-    def get_capabilities(self, emit_warnings: bool = True) -> ModelCapabilities:
-        """
-        Get the unified capabilities declaration for this model schema,
-        resolved through the centralized :func:`derive_capabilities` engine.
-
-        Priority (highest first):
-          1. explicit properties in YAML (streaming/function_call/vision/json_schema/...)
-          2. derived from ``config_schemas`` (e.g. response_format → json_schema)
-          3. provider-level defaults (OpenAI-compat → stream, tool-calling providers → tools)
-          4. safe fallback defaults (bools → False, formats → ["text"])
-        """
-        if self._capabilities_cache is not None:
-            caps, _ = self._capabilities_cache
-            return caps
-
-        props_dict = None
-        if self.properties is not None:
-            try:
-                props_dict = self.properties.model_dump(exclude_none=True)
-            except Exception:
-                props_dict = None
-
-        caps, sources = derive_capabilities(
-            provider_id=self.provider_id,
-            model_schema_id=self.model_schema_id,
-            model_type=self.type.value,
-            explicit_properties=props_dict,
-            config_schemas=self.config_schemas,
-            emit_warnings=emit_warnings,
-        )
-        self._capabilities_cache = (caps, sources)
-        return caps
-
     def allow_stream(self):
-        return self.get_capabilities().stream
+        if self.type == ModelType.CHAT_COMPLETION or self.type == ModelType.WILDCARD:
+            from .chat_completion import ChatCompletionModelProperties
+
+            if self.properties is None:
+                return True
+            properties: ChatCompletionModelProperties = self.properties
+            if properties.streaming:
+                return True
+        return False
 
     def allow_function_call(self):
-        return self.get_capabilities().tools
+        if self.type == ModelType.CHAT_COMPLETION or self.type == ModelType.WILDCARD:
+            from .chat_completion import ChatCompletionModelProperties
+
+            if self.properties is None:
+                return True
+            properties: ChatCompletionModelProperties = self.properties
+            if properties.function_call:
+                return True
+        return False
 
     def allow_vision_input(self):
-        return self.get_capabilities().vision
+        if self.type == ModelType.CHAT_COMPLETION or self.type == ModelType.WILDCARD:
+            from .chat_completion import ChatCompletionModelProperties
 
-    def allow_json_schema(self):
-        return self.get_capabilities().json_schema
-
-    def supports_response_format(self, fmt: str) -> bool:
-        return fmt in self.get_capabilities().supported_response_formats
+            if self.properties is None:
+                return True
+            properties: ChatCompletionModelProperties = self.properties
+            if properties.vision:
+                return True
+        return False
 
     @staticmethod
     def object_name():
@@ -148,7 +129,6 @@ class ModelSchema(BaseModel):
             "provider_model_id": self.provider_model_id,
             "type": self.type.value,
             "properties": self.properties.model_dump(exclude_none=True) if self.properties else None,
-            "capabilities": self.get_capabilities().to_dict(),
             "config_schemas": self.config_schemas,
             "allowed_configs": [config["config_id"] for config in self.config_schemas],
             "pricing": self.pricing.model_dump(exclude_none=True) if self.pricing else None,
