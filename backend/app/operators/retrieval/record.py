@@ -5,8 +5,7 @@ from tkhelper.models.operator.postgres_operator import PostgresModelOperator, Mo
 from tkhelper.error import raise_http_error, ErrorCode, raise_request_validation_error
 
 from app.database import postgres_pool
-from app.models import Record, RecordType, TextSplitter, Collection, ImportStage
-from tkhelper.models import Status
+from app.models import Record, RecordType, TextSplitter, Collection, ImportStage, ImportStatus
 from app.database_ops.retrieval import record as db_record
 from app.services.retrieval.content_loader import load_db_content, load_content_to_split
 
@@ -113,6 +112,7 @@ async def _writing_chunks_stage(
         chunk_embedding_list=embeddings,
         chunk_num_tokens_list=num_tokens_list,
         db_content=db_content,
+        is_retry=is_retry,
     )
 
 
@@ -148,6 +148,7 @@ async def _process_import_stages(
     start_stage: ImportStage = ImportStage.CONTENT_LOADING,
     existing_record_chunks: int = 0,
     cached_results: Optional[Dict] = None,
+    is_retry: bool = False,
 ) -> None:
     """
     Process import stages with tracking. Can start from any stage for retry.
@@ -162,6 +163,7 @@ async def _process_import_stages(
     :param start_stage: stage to start from
     :param existing_record_chunks: existing chunks count for this record
     :param cached_results: cached results from previous failed run
+    :param is_retry: whether this is a retry operation
     :return: None
     """
     cached_results = cached_results or {}
@@ -175,7 +177,7 @@ async def _process_import_stages(
         if start_stage.order <= ImportStage.CONTENT_LOADING.order:
             await db_record.update_import_status(
                 record_id=record_id,
-                status=Status.PROCESSING,
+                import_status=ImportStatus.PROCESSING,
                 processing_stage=ImportStage.CONTENT_LOADING,
             )
             db_content, content_to_split = await _load_content_stage(
@@ -185,7 +187,7 @@ async def _process_import_stages(
         if start_stage.order <= ImportStage.CHUNKING.order:
             await db_record.update_import_status(
                 record_id=record_id,
-                status=Status.PROCESSING,
+                import_status=ImportStatus.PROCESSING,
                 processing_stage=ImportStage.CHUNKING,
             )
             chunk_text_list, num_tokens_list = await _chunking_stage(
@@ -200,7 +202,7 @@ async def _process_import_stages(
         if start_stage.order <= ImportStage.EMBEDDING.order:
             await db_record.update_import_status(
                 record_id=record_id,
-                status=Status.PROCESSING,
+                import_status=ImportStatus.PROCESSING,
                 processing_stage=ImportStage.EMBEDDING,
             )
             embeddings = await _embedding_stage(collection=collection, chunk_text_list=chunk_text_list)
@@ -208,7 +210,7 @@ async def _process_import_stages(
         if start_stage.order <= ImportStage.WRITING_CHUNKS.order:
             await db_record.update_import_status(
                 record_id=record_id,
-                status=Status.PROCESSING,
+                import_status=ImportStatus.PROCESSING,
                 processing_stage=ImportStage.WRITING_CHUNKS,
             )
             await _writing_chunks_stage(
@@ -218,6 +220,7 @@ async def _process_import_stages(
                 num_tokens_list=num_tokens_list,
                 embeddings=embeddings,
                 db_content=db_content,
+                is_retry=is_retry,
             )
 
     except Exception as e:
@@ -232,7 +235,7 @@ async def _process_import_stages(
         error_message = str(e) if str(e) else "Unknown error occurred during import"
         await db_record.update_import_status(
             record_id=record_id,
-            status=Status.FAILED,
+            import_status=ImportStatus.FAILED,
             error_message=error_message,
             import_params=import_params,
         )
@@ -292,6 +295,7 @@ class RecordModelOperator(PostgresModelOperator):
                 url=url,
                 start_stage=ImportStage.CONTENT_LOADING,
                 existing_record_chunks=0,
+                is_retry=False,
             )
         except Exception:
             pass
@@ -315,7 +319,6 @@ class RecordModelOperator(PostgresModelOperator):
         if record.type == RecordType.FILE:
             raise_request_validation_error("Cannot update a file record. Please delete and create a new record.")
 
-        chunk_text_list, num_tokens_list, embeddings, db_content = None, None, None, None
         new_type, new_title = None, None
 
         if (
@@ -340,7 +343,7 @@ class RecordModelOperator(PostgresModelOperator):
 
             await db_record.update_import_status(
                 record_id=record_id,
-                status=Status.PENDING,
+                import_status=ImportStatus.PENDING,
                 processing_stage=ImportStage.PENDING,
                 error_message=None,
                 import_params=import_params,
@@ -358,6 +361,7 @@ class RecordModelOperator(PostgresModelOperator):
                     url=new_url,
                     start_stage=ImportStage.CONTENT_LOADING,
                     existing_record_chunks=record.num_chunks,
+                    is_retry=False,
                 )
             except Exception:
                 pass
@@ -391,8 +395,8 @@ class RecordModelOperator(PostgresModelOperator):
         collection = await collection_ops.get(collection_id=collection_id)
         record: Record = await self.get(collection_id=collection_id, record_id=record_id)
 
-        if record.status != Status.FAILED:
-            raise_request_validation_error("Only failed records can be retried")
+        if record.import_status != ImportStatus.FAILED:
+            raise_request_validation_error("Only records with failed import status can be retried")
 
         if not record.import_params:
             raise_request_validation_error("No import parameters found for retry")
@@ -418,6 +422,7 @@ class RecordModelOperator(PostgresModelOperator):
             url=url,
             start_stage=start_stage,
             existing_record_chunks=record.num_chunks,
+            is_retry=True,
         )
 
         record = await self.get(collection_id=collection_id, record_id=record_id)

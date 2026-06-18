@@ -1,5 +1,5 @@
 from app.database.connection import postgres_pool
-from app.models import Record, Collection, RecordType, ImportStage
+from app.models import Record, Collection, RecordType, ImportStage, ImportStatus
 from tkhelper.models import Status
 from typing import Dict, Optional, List
 from app.database_ops.utils import update_object
@@ -9,7 +9,7 @@ import json
 
 async def update_import_status(
     record_id: str,
-    status: Status,
+    import_status: ImportStatus,
     processing_stage: Optional[ImportStage] = None,
     error_message: Optional[str] = None,
     import_params: Optional[Dict] = None,
@@ -17,14 +17,14 @@ async def update_import_status(
     """
     Update record import status
     :param record_id: the record id
-    :param status: the new status
+    :param import_status: the new import status
     :param processing_stage: the current processing stage
     :param error_message: the error message if failed
     :param import_params: the import params for retry
     :return: None
     """
     update_dict = {
-        "status": status.value,
+        "import_status": import_status.value,
     }
     if processing_stage is not None:
         update_dict["processing_stage"] = processing_stage.value
@@ -55,7 +55,7 @@ async def update_record(
     metadata: Optional[Dict],
 ) -> None:
     """
-    Update record
+    Update record (metadata or full content update)
     :param collection: the collection where the record belongs to
     :param record: the record to be updated
     :param title: the record title
@@ -125,15 +125,17 @@ async def update_record_chunks_and_status(
     chunk_embedding_list: List[List[float]],
     chunk_num_tokens_list: List[int],
     db_content: str,
+    is_retry: bool = False,
 ) -> None:
     """
-    Update record chunks and mark as succeeded
+    Update record chunks and mark import as succeeded
     :param collection: the collection
     :param record_id: the record id
     :param chunk_text_list: the text list of the chunks
     :param chunk_embedding_list: the embedding list of the chunks
     :param chunk_num_tokens_list: the num_tokens list of the chunks
     :param db_content: the db content
+    :param is_retry: whether this is a retry operation
     :return: None
     """
     collection_id = collection.collection_id
@@ -156,7 +158,7 @@ async def update_record_chunks_and_status(
             )
 
             update_dict = {
-                "status": Status.SUCCEEDED.value,
+                "import_status": ImportStatus.SUCCEEDED.value,
                 "processing_stage": ImportStage.COMPLETED.value,
                 "error_message": None,
                 "import_params": None,
@@ -180,7 +182,8 @@ async def update_record_chunks_and_status(
                     collection_id,
                 )
 
-            await conn.execute(
-                "UPDATE collection SET num_records = num_records + 1 WHERE collection_id=$1;",
-                collection_id,
-            )
+            if not is_retry:
+                await conn.execute(
+                    "UPDATE collection SET num_records = num_records + 1 WHERE collection_id=$1;",
+                    collection_id,
+                )

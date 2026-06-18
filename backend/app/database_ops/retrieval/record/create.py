@@ -1,5 +1,5 @@
 from app.database.connection import postgres_pool
-from app.models import Collection, RecordType, ImportStage
+from app.models import Collection, RecordType, ImportStage, ImportStatus
 from tkhelper.models import Status
 from typing import Dict, List, Optional
 import json
@@ -16,7 +16,7 @@ async def create_record_pending(
     import_params: Dict,
 ) -> None:
     """
-    Create record with pending status
+    Create record with pending import status
     :param record_id: the record id
     :param collection: the collection where the record belongs to
     :param title: the record title
@@ -30,17 +30,18 @@ async def create_record_pending(
         await conn.execute(
             """
             INSERT INTO record (record_id, collection_id, title, type, content, status, metadata, num_chunks, 
-                                processing_stage, error_message, import_params)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                                import_status, processing_stage, error_message, import_params)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         """,
             record_id,
             collection.collection_id,
             title,
             type.value,
             content,
-            Status.PENDING.value,
+            Status.READY.value,
             json.dumps(metadata),
             0,
+            ImportStatus.PENDING.value,
             ImportStage.PENDING.value,
             None,
             json.dumps(import_params),
@@ -59,7 +60,7 @@ async def create_record_and_chunks(
     metadata: Dict[str, str],
 ) -> None:
     """
-    Create record and its chunks
+    Create record and its chunks (legacy path, marks import as succeeded)
     :param record_id: the record id
     :param collection: the collection where the record belongs to
     :param chunk_text_list: the text list of the chunks to be created
@@ -77,17 +78,18 @@ async def create_record_and_chunks(
             await conn.execute(
                 """
                 INSERT INTO record (record_id, collection_id, title, type, content, status, metadata, num_chunks,
-                                    processing_stage, error_message, import_params)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                                    import_status, processing_stage, error_message, import_params)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             """,
                 record_id,
                 collection.collection_id,
                 title,
                 type.value,
                 content,
-                Status.SUCCEEDED.value,
+                Status.READY.value,
                 json.dumps(metadata),
                 len(chunk_text_list),
+                ImportStatus.SUCCEEDED.value,
                 ImportStage.COMPLETED.value,
                 None,
                 None,

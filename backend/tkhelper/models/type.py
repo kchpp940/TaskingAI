@@ -10,10 +10,6 @@ class Status(str, Enum):
     DELETING = "deleting"
     ERROR = "error"
     PARTIAL = "partial"
-    PENDING = "pending"
-    PROCESSING = "processing"
-    SUCCEEDED = "succeeded"
-    FAILED = "failed"
 
 
 class SortOrderEnum(str, Enum):

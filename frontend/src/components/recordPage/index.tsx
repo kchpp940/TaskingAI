@@ -90,45 +90,48 @@ function RecordPage({ collectionId,fetChData }: { collectionId: string,fetChData
         },
         {
             title: `${t('projectRetrievalColumnStatus')}`,
-            dataIndex: 'status',
-            key: 'status',
+            dataIndex: 'import_status',
+            key: 'import_status',
             width: 220,
-            render: (text: string, record: any) => (
-                <div className={styles.statusContainer}>
-                    <div className={`${styles.statusBadge} ${styles[text]}`}>
-                        {text === 'pending' && '⏳ Pending'}
-                        {text === 'processing' && `⚙️ ${record.processing_stage || 'Processing'}`}
-                        {text === 'succeeded' && '✅ Succeeded'}
-                        {text === 'failed' && '❌ Failed'}
-                        {text === 'ready' && '✅ Ready'}
-                        {text === 'error' && '❌ Error'}
-                        {text === 'creating' && '⏳ Creating'}
-                        {text === 'deleting' && '🗑️ Deleting'}
+            render: (importStatus: string, record: any) => {
+                const displayStatus = importStatus || (record.status === 'ready' ? 'succeeded' : record.status);
+                return (
+                    <div className={styles.statusContainer}>
+                        <div className={`${styles.statusBadge} ${styles[displayStatus]}`}>
+                            {displayStatus === 'pending' && '⏳ Pending'}
+                            {displayStatus === 'processing' && `⚙️ ${record.processing_stage || 'Processing'}`}
+                            {displayStatus === 'succeeded' && '✅ Succeeded'}
+                            {displayStatus === 'failed' && '❌ Failed'}
+                            {displayStatus === 'ready' && '✅ Ready'}
+                            {displayStatus === 'error' && '❌ Error'}
+                            {displayStatus === 'creating' && '⏳ Creating'}
+                            {displayStatus === 'deleting' && '🗑️ Deleting'}
+                        </div>
+                        {displayStatus === 'failed' && record.error_message && (
+                            <Tooltip title={record.error_message} placement="bottom">
+                                <div className={styles.errorMessage}>
+                                    {record.error_message.length > 30
+                                        ? record.error_message.substring(0, 30) + '...'
+                                        : record.error_message}
+                                </div>
+                            </Tooltip>
+                        )}
+                        {displayStatus === 'failed' && (
+                            <Button
+                                type="link"
+                                size="small"
+                                className={styles.retryButton}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleRetry(record);
+                                }}
+                            >
+                                🔄 Retry
+                            </Button>
+                        )}
                     </div>
-                    {text === 'failed' && record.error_message && (
-                        <Tooltip title={record.error_message} placement="bottom">
-                            <div className={styles.errorMessage}>
-                                {record.error_message.length > 30 
-                                    ? record.error_message.substring(0, 30) + '...' 
-                                    : record.error_message}
-                            </div>
-                        </Tooltip>
-                    )}
-                    {text === 'failed' && (
-                        <Button
-                            type="link"
-                            size="small"
-                            className={styles.retryButton}
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                handleRetry(record);
-                            }}
-                        >
-                            🔄 Retry
-                        </Button>
-                    )}
-                </div>
-            )
+                );
+            }
         },
         {
             title: `${t('chunk')}`,

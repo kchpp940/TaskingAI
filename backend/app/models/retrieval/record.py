@@ -12,6 +12,7 @@ from .collection import Collection
 
 __all__ = [
     "RecordType",
+    "ImportStatus",
     "ImportStage",
     "Record",
 ]
@@ -21,6 +22,13 @@ class RecordType(str, Enum):
     TEXT = "text"
     FILE = "file"
     WEB = "web"
+
+
+class ImportStatus(str, Enum):
+    PENDING = "pending"
+    PROCESSING = "processing"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
 
 
 class ImportStage(str, Enum):
@@ -49,7 +57,12 @@ class Record(ModelEntity):
     record_id: str = id_field("record", length_range=(1, 50))
     collection_id: str = id_field("collection", length_range=(1, 50))
     title: str = Field("", description="The title of the record", examples=["Record 1"])
-    status: Status = Field(..., description="The status of the record", examples=["ready"])
+    status: Status = Field(..., description="The lifecycle status of the record", examples=["ready"])
+    import_status: Optional[ImportStatus] = Field(
+        None,
+        description="The import status of the record",
+        examples=["processing"],
+    )
     num_chunks: int = Field(..., ge=0, description="Number of chunks in the record", examples=[20])
     type: RecordType = Field(..., description="The type of the record", examples=["text"])
     content: str = Field(..., description="The content of the record")
@@ -92,6 +105,7 @@ class Record(ModelEntity):
             title=row["title"],
             collection_id=row["collection_id"],
             status=Status(row["status"]),
+            import_status=ImportStatus(row["import_status"]) if row.get("import_status") else None,
             num_chunks=row["num_chunks"],
             type=RecordType(row["type"]),
             content=row["content"],
