@@ -87,8 +87,12 @@ def _build_indices(model_schemas: List[ModelSchema]):
 
 
 def _write_cache(model_schemas: List[ModelSchema]):
-    cache = [model_schema.to_dict(lang=None, include_internal=True) for model_schema in model_schemas]
+    cache = [model_schema.to_dict(lang=None) for model_schema in model_schemas]
     return cache, checksum(cache)
+
+
+def _get_debug_model_schema_cache() -> List[Dict]:
+    return [model_schema.to_dict(lang=None, include_internal=True) for model_schema in _model_schemas]
 
 
 def load_model_schema_data(provider_ids: List[str]) -> None:
@@ -140,4 +144,5 @@ def get_model_schema_cache() -> List[Dict]:
 
 def get_model_schema_checksum() -> str:
     return __model_schema_checksum
+
 
