@@ -97,6 +97,10 @@ class TextEmbeddingRequest(BaseModel):
 
 
 class TextEmbeddingMetadata(BaseModel):
+    cache_backend: str = Field(
+        "",
+        description="Cache backend used: 'redis' for shared cross-instance cache, 'memory' for local in-memory only.",
+    )
     cache_hits: int = Field(
         0,
         description="Number of input texts served from the TTL cache.",

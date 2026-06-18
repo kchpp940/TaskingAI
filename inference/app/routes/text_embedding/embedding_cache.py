@@ -1,17 +1,15 @@
 import hashlib
 import json
-import asyncio
-import time
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
+
 from config import CONFIG
+from .cache_backends import EmbeddingCacheBackend, get_current_cache_backend
 
 logger = logging.getLogger(__name__)
 
-_cache: Dict[str, Tuple[List[float], float]] = {}
-_lock = asyncio.Lock()
-
 _NON_SEMANTIC_PROPERTIES = {"input_token_limit", "max_batch_size"}
+_CACHE_KEY_PREFIX = "embedding_cache:"
 
 
 def _canonicalize_properties(properties: Optional[Dict]) -> Dict:
@@ -38,50 +36,40 @@ def generate_cache_key(
         "properties": canonical_props,
     }
     raw = json.dumps(key_parts, sort_keys=True)
-    return hashlib.sha256(raw.encode()).hexdigest()
+    return _CACHE_KEY_PREFIX + hashlib.sha256(raw.encode()).hexdigest()
+
+
+def get_cache_backend() -> EmbeddingCacheBackend:
+    return get_current_cache_backend()
+
+
+def get_cache_backend_name() -> str:
+    return get_current_cache_backend().name
 
 
 async def get_cached(key: str, ttl: Optional[int] = None) -> Optional[List[float]]:
     if ttl is None:
         ttl = CONFIG.EMBEDDING_CACHE_TTL
-    async with _lock:
-        entry = _cache.get(key)
-        if entry is None:
-            return None
-        embedding, ts = entry
-        if time.time() - ts > ttl:
-            del _cache[key]
-            return None
-        return embedding
+    backend = get_cache_backend()
+    return await backend.get(key, ttl=ttl)
 
 
 async def set_cached(key: str, embedding: List[float], max_size: Optional[int] = None) -> None:
     if max_size is None:
         max_size = CONFIG.EMBEDDING_CACHE_MAX_SIZE
-    async with _lock:
-        if len(_cache) >= max_size:
-            _evict_oldest(max_size // 2)
-        _cache[key] = (embedding, time.time())
-
-
-def _evict_oldest(remove_count: int) -> None:
-    sorted_items = sorted(_cache.items(), key=lambda item: item[1][1])
-    for key, _ in sorted_items[:remove_count]:
-        del _cache[key]
+    backend = get_cache_backend()
+    await backend.set(key, embedding, ttl=CONFIG.EMBEDDING_CACHE_TTL, max_size=max_size)
 
 
 async def evict_expired(ttl: Optional[int] = None) -> int:
     if ttl is None:
         ttl = CONFIG.EMBEDDING_CACHE_TTL
-    async with _lock:
-        now = time.time()
-        expired_keys = [k for k, (_, ts) in _cache.items() if now - ts > ttl]
-        for k in expired_keys:
-            del _cache[k]
-        if expired_keys:
-            logger.info(f"embedding_cache: evicted {len(expired_keys)} expired entries")
-        return len(expired_keys)
+    backend = get_cache_backend()
+    return await backend.evict_expired(ttl=ttl)
 
 
-def cache_stats() -> Dict[str, int]:
-    return {"size": len(_cache)}
+def cache_stats() -> Dict[str, Any]:
+    backend = get_cache_backend()
+    stats = backend.stats()
+    stats["backend"] = backend.name
+    return stats

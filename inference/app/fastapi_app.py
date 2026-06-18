@@ -38,6 +38,8 @@ async def lifespan(app: FastAPI):
         load_all_text_embedding_models,
         load_all_chat_completion_models,
     )
+    from app.routes.text_embedding.cache_backends import init_cache_backend
+    from app.routes.text_embedding.embedding_cache import get_cache_backend_name
     from app.utils import set_i18n_checksum
 
     try:
@@ -47,6 +49,8 @@ async def lifespan(app: FastAPI):
         load_all_text_embedding_models(provider_ids)
         load_all_chat_completion_models(provider_ids)
         set_i18n_checksum()
+        init_cache_backend()
+        logger.info(f"embedding cache backend initialized: {get_cache_backend_name()}")
         yield
 
     finally:

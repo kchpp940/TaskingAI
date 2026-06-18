@@ -11,7 +11,7 @@ from app.models.tokenizer import string_tokens
 import asyncio
 import time
 from .schema import *
-from .embedding_cache import generate_cache_key, get_cached, set_cached
+from .embedding_cache import generate_cache_key, get_cached, set_cached, get_cache_backend_name
 import logging
 from typing import Dict, List, Optional
 import numpy as np
@@ -158,8 +158,10 @@ async def embed_text(
 
     elapsed_ms = round((time.time() - start_time) * 1000, 2)
     usage = TextEmbeddingUsage(input_tokens=sum(string_tokens(i) for i in input))
+    cache_backend = get_cache_backend_name()
 
     metadata = TextEmbeddingMetadata(
+        cache_backend=cache_backend,
         cache_hits=cache_hits,
         total_inputs=len(input),
         unique_keys=len(unique_cache_keys),
@@ -168,7 +170,8 @@ async def embed_text(
         elapsed_ms=elapsed_ms,
     )
     logger.info(
-        f"embedding_cache: model_schema_id={model_schema_id} "
+        f"embedding_cache: backend={cache_backend} "
+        f"model_schema_id={model_schema_id} "
         f"total={len(input)} unique_keys={len(unique_cache_keys)} "
         f"cache_hits={cache_hits} provider_calls={provider_calls} "
         f"batches={batch_count} elapsed_ms={elapsed_ms}"

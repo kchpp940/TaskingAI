@@ -14,6 +14,7 @@ default_env_values = {
     "DEFAULT_LANG": "en",
     "EMBEDDING_CACHE_TTL": 300,
     "EMBEDDING_CACHE_MAX_SIZE": 10000,
+    "REDIS_URL": "",
 }
 
 
@@ -98,6 +99,8 @@ class Config:
 
         self.EMBEDDING_CACHE_TTL = load_int_env("EMBEDDING_CACHE_TTL") or 300
         self.EMBEDDING_CACHE_MAX_SIZE = load_int_env("EMBEDDING_CACHE_MAX_SIZE") or 10000
+
+        self.REDIS_URL = load_str_env("REDIS_URL") or ""
 
 
 CONFIG = Config()
