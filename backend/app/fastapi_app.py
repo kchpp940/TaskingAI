@@ -32,6 +32,7 @@ async def lifespan(app: FastAPI):
     from app.database import close_database, init_database
     from app.services.auth.admin import create_default_admin_if_needed
     from app.config import CONFIG
+    from app.tasks import record_import_queue
 
     try:
         logger.info("fastapi app startup...")
@@ -46,10 +47,17 @@ async def lifespan(app: FastAPI):
         if CONFIG.WEB:
             await create_default_admin_if_needed()
 
+        logger.info("starting record import queue worker...")
+        await record_import_queue.start()
+
         yield
 
     finally:
         logger.info("fastapi app shutdown...")
+
+        logger.info("stopping record import queue worker...")
+        await record_import_queue.stop()
+
         await close_database()
 
 
