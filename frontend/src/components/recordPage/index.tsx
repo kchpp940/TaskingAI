@@ -190,8 +190,42 @@ function RecordPage({ collectionId,fetChData }: { collectionId: string,fetChData
     const [chunkOverlap, setChunkOverlap] = useState(10)
     const [type, setType] = useState('text')
     const [fileList, setFileList] = useState<any>([]);
-    const [websiteValue, setWebsiteValue] = useState('')
     const [fileLoading, setFileLoading] = useState(false);
+    const [pollingInterval, setPollingInterval] = useState<number | null>(null);
+
+    const POLLING_INTERVAL_MS = 2000;
+
+    const hasProcessingRecords = () => {
+        return recordList.some((record: any) => {
+            const importStatus = record.import_status;
+            return importStatus === 'pending' || importStatus === 'processing';
+        });
+    };
+
+    useEffect(() => {
+        if (hasProcessingRecords()) {
+            if (!pollingInterval) {
+                const interval = window.setInterval(async () => {
+                    const params = {
+                        limit: limit || 20,
+                    };
+                    await fetchData(collectionId, params);
+                }, POLLING_INTERVAL_MS);
+                setPollingInterval(interval);
+            }
+        } else {
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+                setPollingInterval(null);
+            }
+        }
+
+        return () => {
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+            }
+        };
+    }, [recordList, collectionId]);
 
     const handleChildEvent = async (value: any) => {
         setLimit(value.limit)

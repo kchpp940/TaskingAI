@@ -8,6 +8,11 @@ from app.database import postgres_pool
 from app.models import Record, RecordType, TextSplitter, Collection, ImportStage, ImportStatus
 from app.database_ops.retrieval import record as db_record
 from app.services.retrieval.content_loader import load_db_content, load_content_to_split
+from app.tasks.record_import import (
+    submit_record_import_task,
+    submit_record_update_task,
+    submit_record_retry_task,
+)
 
 from .collection import collection_ops
 from ..model import model_ops
@@ -283,22 +288,16 @@ class RecordModelOperator(PostgresModelOperator):
             import_params=import_params,
         )
 
-        try:
-            await _process_import_stages(
-                collection=collection,
-                record_id=new_record_id,
-                type=type,
-                title=title,
-                text_splitter=text_splitter,
-                content=content,
-                file_id=file_id,
-                url=url,
-                start_stage=ImportStage.CONTENT_LOADING,
-                existing_record_chunks=0,
-                is_retry=False,
-            )
-        except Exception:
-            pass
+        await submit_record_import_task(
+            collection_id=collection_id,
+            record_id=new_record_id,
+            type=type,
+            title=title,
+            text_splitter=text_splitter,
+            content=content,
+            file_id=file_id,
+            url=url,
+        )
 
         record = await self.get(collection_id=collection_id, record_id=new_record_id)
         return record
@@ -349,22 +348,17 @@ class RecordModelOperator(PostgresModelOperator):
                 import_params=import_params,
             )
 
-            try:
-                await _process_import_stages(
-                    collection=collection,
-                    record_id=record_id,
-                    type=new_type,
-                    title=new_title,
-                    text_splitter=text_splitter,
-                    content=new_content,
-                    file_id=None,
-                    url=new_url,
-                    start_stage=ImportStage.CONTENT_LOADING,
-                    existing_record_chunks=record.num_chunks,
-                    is_retry=False,
-                )
-            except Exception:
-                pass
+            await submit_record_update_task(
+                collection_id=collection_id,
+                record_id=record_id,
+                type=new_type,
+                title=new_title,
+                text_splitter=text_splitter,
+                content=new_content,
+                file_id=None,
+                url=new_url,
+                existing_record_chunks=record.num_chunks,
+            )
 
             record = await self.get(collection_id=collection_id, record_id=record_id)
 
@@ -411,18 +405,24 @@ class RecordModelOperator(PostgresModelOperator):
 
         start_stage = record.processing_stage or ImportStage.CONTENT_LOADING
 
-        await _process_import_stages(
-            collection=collection,
+        await db_record.update_import_status(
+            record_id=record_id,
+            import_status=ImportStatus.PROCESSING,
+            processing_stage=start_stage,
+            error_message=None,
+        )
+
+        await submit_record_retry_task(
+            collection_id=collection_id,
             record_id=record_id,
             type=type,
             title=title,
             text_splitter=text_splitter,
+            start_stage=start_stage,
             content=content,
             file_id=file_id,
             url=url,
-            start_stage=start_stage,
             existing_record_chunks=record.num_chunks,
-            is_retry=True,
         )
 
         record = await self.get(collection_id=collection_id, record_id=record_id)
