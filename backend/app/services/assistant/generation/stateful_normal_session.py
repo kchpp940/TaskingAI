@@ -1,10 +1,10 @@
 from fastapi import HTTPException
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from tkhelper.error import raise_http_error, ErrorCode
 from tkhelper.utils import current_timestamp_int_milliseconds
 import logging
 
-from app.models import Assistant, Chat
+from app.models import Assistant, Chat, Message
 
 from .session import Session
 from .utils import *
@@ -155,13 +155,10 @@ class StatefulNormalSession(Session):
                 content_text=chat_completion_assistant_message_dict["content"],
                 logs=self.logs if self.save_logs else None,
             )
-            response: Dict[str, Any] = {
-                "status": "success",
-                "data": message.to_response_dict(),
+            return {
+                "message": message,
+                "trace": self.logs if self.debug else None,
             }
-            if self.debug:
-                response["trace"] = self.logs
-            return response
 
         except MessageGenerationInvalidRequestException as e:
             logger.error(f"StatefulNormalSession.generate: HTTPException error = {e}")

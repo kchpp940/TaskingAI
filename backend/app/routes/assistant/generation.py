@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, Request
 from typing import Dict
 from starlette.responses import StreamingResponse, Response
 from fastapi.responses import JSONResponse
+from fastapi.encoders import jsonable_encoder
 
 from app.services.assistant import get_assistant_and_chat, StatefulNormalSession, StatefulStreamSession
 from app.schemas.assistant.generate import MessageGenerateRequest
@@ -55,4 +56,10 @@ async def api_chat_generate(
             debug=payload.debug,
         )
         result = await session.generate(system_prompt_variables)
-        return JSONResponse(content=result)
+        response_data = {
+            "status": "success",
+            "data": result["message"].to_response_dict(),
+        }
+        if result["trace"] is not None:
+            response_data["trace"] = result["trace"]
+        return JSONResponse(content=jsonable_encoder(response_data))
