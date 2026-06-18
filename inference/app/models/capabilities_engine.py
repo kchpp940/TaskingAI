@@ -136,6 +136,71 @@ _JSON_SCHEMA_PROVIDERS = frozenset(
 _HIGH_RISK_CAPABILITIES = frozenset({"tools", "vision", "json_schema"})
 
 
+# ---------------------------------------------------------------------------
+# Capabilities normalization — keeps json_schema bool and
+# supported_response_formats list in sync
+# ---------------------------------------------------------------------------
+
+
+def normalize_capabilities(
+    caps: ModelCapabilities,
+) -> ModelCapabilities:
+    """
+    Enforce bidirectional consistency between ``json_schema`` (boolean
+    capability) and ``supported_response_formats`` (explicit format list).
+
+    Rules:
+
+    1. If ``supported_response_formats`` contains ``"json_schema"`` but
+       ``json_schema`` is False → set ``json_schema = True``.
+       (An explicit format list is the strongest declaration.)
+
+    2. If ``json_schema = True`` and ``"json_schema"`` is missing from
+       ``supported_response_formats`` → append it.
+
+    3. If ``json_schema = True`` and ``supported_response_formats`` is
+       only ``["text"]`` → expand to ``["text", "json_object", "json_schema"]``
+       since a model that supports json_schema almost always supports
+       json_object too.
+
+    This is the **single canonical normalization function** for the
+    inference side.  Backend and frontend maintain copies with identical
+    logic.  Call this before exposing capabilities to any consumer.
+    """
+
+    changed = False
+
+    # Rule 1: explicit formats win over boolean
+    if (
+        ResponseFormatType.JSON_SCHEMA in caps.supported_response_formats
+        and not caps.json_schema
+    ):
+        caps.json_schema = True
+        changed = True
+
+    # Rule 2: boolean triggers format list extension
+    if caps.json_schema:
+        if ResponseFormatType.JSON_SCHEMA not in caps.supported_response_formats:
+            caps.supported_response_formats = [
+                *caps.supported_response_formats,
+                ResponseFormatType.JSON_SCHEMA,
+            ]
+            changed = True
+        # Rule 3: minimal list expansion
+        if caps.supported_response_formats == [ResponseFormatType.TEXT]:
+            caps.supported_response_formats = [
+                ResponseFormatType.TEXT,
+                ResponseFormatType.JSON_OBJECT,
+                ResponseFormatType.JSON_SCHEMA,
+            ]
+            changed = True
+
+    if changed:
+        # Re-validate to be safe (Pydantic will coerce types).
+        caps = ModelCapabilities.model_validate(caps.model_dump())
+    return caps
+
+
 def provider_suggests_stream(provider_id: str) -> bool:
     return provider_id in _OPENAI_COMPATIBLE_PROVIDERS
 
@@ -306,16 +371,6 @@ def derive_capabilities(
     else:
         supported_response_formats = [ResponseFormatType.TEXT]
 
-    # Consistency: if json_schema=True but json_schema not in formats, append it.
-    if json_schema and ResponseFormatType.JSON_SCHEMA not in supported_response_formats:
-        supported_response_formats = [*supported_response_formats, ResponseFormatType.JSON_SCHEMA]
-    if json_schema and supported_response_formats == [ResponseFormatType.TEXT]:
-        supported_response_formats = [
-            ResponseFormatType.TEXT,
-            ResponseFormatType.JSON_OBJECT,
-            ResponseFormatType.JSON_SCHEMA,
-        ]
-
     caps = ModelCapabilities(
         stream=stream,
         tools=tools,
@@ -325,6 +380,9 @@ def derive_capabilities(
         max_output_tokens=max_output_tokens,
         supported_response_formats=supported_response_formats,
     )
+
+    # ------ single canonical normalization: sync json_schema ↔ formats ------
+    caps = normalize_capabilities(caps)
 
     # ------ structured warnings ------
     if emit_warnings and model_type in ("chat_completion", "wildcard"):
@@ -379,6 +437,7 @@ def derive_capabilities(
 
 __all__ = [
     "derive_capabilities",
+    "normalize_capabilities",
     "provider_suggests_stream",
     "provider_suggests_tools",
     "provider_suggests_json_schema",

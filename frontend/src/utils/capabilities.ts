@@ -26,6 +26,56 @@ export interface NormalizedCapabilities {
 }
 
 const DEFAULT_FORMATS = ['text'];
+const JSON_SCHEMA = 'json_schema';
+const JSON_OBJECT = 'json_object';
+
+/**
+ * Enforce bidirectional consistency between `json_schema` (boolean capability)
+ * and `supported_response_formats` (explicit format list).
+ *
+ * **Keep this logic in sync with**:
+ *   - inference/app/models/capabilities_engine.py::normalize_capabilities
+ *   - backend/app/models/model/capabilities_engine.py::normalize_capabilities
+ *
+ * Rules:
+ *   1. If `supported_response_formats` contains `"json_schema"` but
+ *      `json_schema` is false → set `json_schema = true`.
+ *   2. If `json_schema = true` and `"json_schema"` is missing from
+ *      `supported_response_formats` → append it.
+ *   3. If `json_schema = true` and `supported_response_formats` is only
+ *      `["text"]` → expand to `["text", "json_object", "json_schema"]`.
+ */
+export function normalizeCapabilities(caps: Partial<NormalizedCapabilities>): NormalizedCapabilities {
+    const out: NormalizedCapabilities = {
+        stream: Boolean(caps.stream),
+        tools: Boolean(caps.tools),
+        vision: Boolean(caps.vision),
+        json_schema: Boolean(caps.json_schema),
+        max_context_tokens: typeof caps.max_context_tokens === 'number' ? caps.max_context_tokens : undefined,
+        max_output_tokens: typeof caps.max_output_tokens === 'number' ? caps.max_output_tokens : undefined,
+        supported_response_formats:
+            Array.isArray(caps.supported_response_formats) && caps.supported_response_formats.length
+                ? [...caps.supported_response_formats]
+                : [...DEFAULT_FORMATS],
+    };
+
+    // Rule 1: explicit formats win over boolean
+    if (out.supported_response_formats.includes(JSON_SCHEMA) && !out.json_schema) {
+        out.json_schema = true;
+    }
+
+    // Rule 2: boolean triggers format list extension
+    if (out.json_schema && !out.supported_response_formats.includes(JSON_SCHEMA)) {
+        out.supported_response_formats.push(JSON_SCHEMA);
+    }
+
+    // Rule 3: minimal list expansion
+    if (out.json_schema && out.supported_response_formats.length === 1 && out.supported_response_formats[0] === 'text') {
+        out.supported_response_formats = ['text', JSON_OBJECT, JSON_SCHEMA];
+    }
+
+    return out;
+}
 
 /**
  * Extract a normalized capabilities dict from any model-like object
@@ -71,7 +121,7 @@ export function getCapabilities(model: any): NormalizedCapabilities {
         supported_response_formats = props.supported_response_formats;
     }
 
-    return {
+    return normalizeCapabilities({
         stream,
         tools,
         vision,
@@ -79,7 +129,7 @@ export function getCapabilities(model: any): NormalizedCapabilities {
         max_context_tokens,
         max_output_tokens,
         supported_response_formats,
-    };
+    });
 }
 
 /**
@@ -125,7 +175,7 @@ export function mergeCapabilities(models: any[] = []): NormalizedCapabilities {
             new Set(capsList[0].supported_response_formats),
         );
 
-    return {
+    return normalizeCapabilities({
         stream,
         tools,
         vision,
@@ -133,7 +183,7 @@ export function mergeCapabilities(models: any[] = []): NormalizedCapabilities {
         max_context_tokens: isFinite(max_context_tokens) ? max_context_tokens : undefined,
         max_output_tokens: isFinite(max_output_tokens) ? max_output_tokens : undefined,
         supported_response_formats: [...intersection],
-    };
+    });
 }
 
 /** Returns a human-readable reason why a capability is not supported. */

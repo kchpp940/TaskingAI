@@ -42,6 +42,59 @@ logger = logging.getLogger(__name__)
 
 _HIGH_RISK_CAPABILITIES = frozenset({"tools", "vision", "json_schema"})
 
+_TEXT = "text"
+_JSON_OBJECT = "json_object"
+_JSON_SCHEMA = "json_schema"
+
+
+# ---------------------------------------------------------------------------
+# Capabilities normalization — keeps json_schema bool and
+# supported_response_formats list in sync (mirrors inference-side logic).
+# ---------------------------------------------------------------------------
+
+
+def normalize_capabilities(caps: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Enforce bidirectional consistency between ``json_schema`` (boolean
+    capability) and ``supported_response_formats`` (explicit format list).
+
+    **Keep this logic in sync with** ``inference/app/models/capabilities_engine.py``
+    and ``frontend/src/utils/capabilities.ts``.
+
+    Rules:
+      1. If ``supported_response_formats`` contains ``"json_schema"`` but
+         ``json_schema`` is False → set ``json_schema = True``.
+      2. If ``json_schema = True`` and ``"json_schema"`` is missing from
+         ``supported_response_formats`` → append it.
+      3. If ``json_schema = True`` and ``supported_response_formats`` is
+         only ``["text"]`` → expand to ``["text", "json_object", "json_schema"]``.
+    """
+    out = dict(caps) if isinstance(caps, dict) else {}
+
+    srf = out.get("supported_response_formats")
+    if not isinstance(srf, list) or not srf:
+        srf = [_TEXT]
+    out["supported_response_formats"] = [str(f) for f in srf]
+
+    # Rule 1: formats list wins over boolean
+    if _JSON_SCHEMA in out["supported_response_formats"] and not out.get("json_schema"):
+        out["json_schema"] = True
+
+    json_schema = bool(out.get("json_schema", False))
+
+    # Rule 2: boolean triggers format list extension
+    if json_schema and _JSON_SCHEMA not in out["supported_response_formats"]:
+        out["supported_response_formats"] = [
+            *out["supported_response_formats"],
+            _JSON_SCHEMA,
+        ]
+    # Rule 3: minimal list expansion
+    if json_schema and out["supported_response_formats"] == [_TEXT]:
+        out["supported_response_formats"] = [_TEXT, _JSON_OBJECT, _JSON_SCHEMA]
+
+    return out
+
+
 _OPENAI_COMPATIBLE_PROVIDERS = frozenset(
     {
         "openai",
@@ -98,10 +151,6 @@ _JSON_SCHEMA_PROVIDERS = frozenset(
         "custom_host",
     }
 )
-
-_TEXT = "text"
-_JSON_OBJECT = "json_object"
-_JSON_SCHEMA = "json_schema"
 
 
 def _normalise_legacy_properties(props: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -249,10 +298,8 @@ def derive_model_capabilities(
     else:
         out["supported_response_formats"] = [_TEXT]
 
-    if out["json_schema"] and _JSON_SCHEMA not in out["supported_response_formats"]:
-        out["supported_response_formats"] = [*out["supported_response_formats"], _JSON_SCHEMA]
-    if out["json_schema"] and out["supported_response_formats"] == [_TEXT]:
-        out["supported_response_formats"] = [_TEXT, _JSON_OBJECT, _JSON_SCHEMA]
+    # ------ single canonical normalization: sync json_schema ↔ formats ------
+    out = normalize_capabilities(out)
 
     # --- Warnings ---
     if emit_warnings and model_type in ("chat_completion", "wildcard"):
@@ -315,6 +362,7 @@ def supports_response_format(caps: Dict, fmt: str) -> bool:
 
 __all__ = [
     "derive_model_capabilities",
+    "normalize_capabilities",
     "allow_stream",
     "allow_tools",
     "allow_vision",

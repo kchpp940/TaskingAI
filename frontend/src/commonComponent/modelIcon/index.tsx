@@ -7,46 +7,39 @@ import StreamIcon from '@/assets/img/streamIcon.svg?react'
 import VisionInputIcon from '@/assets/img/visionInputIcon.svg?react'
 import Dollar from '@/assets/img/dollar.svg?react'
 import styles from './modelIcon.module.scss'
+import {
+    getCapabilities as standardizeCapabilities,
+    NormalizedCapabilities,
+} from '@/utils/capabilities'
 
 /**
  * Normalize either legacy `properties` or the new unified `capabilities`
  * object into a single display dict for the ModelIcon component.
+ *
+ * Delegates the heavy lifting — including bidirectional consistency between
+ * `json_schema` and `supported_response_formats` — to the canonical
+ * `utils/capabilities.ts` implementation, then renames fields to the legacy
+ * display keys that ModelIcon already knows.
  */
 function normalizeCapabilities(props: any): Record<string, any> {
     if (!props) return {}
-    const capabilities = props.capabilities || {}
-    const properties = props.properties || props
+    const caps: NormalizedCapabilities = standardizeCapabilities(props)
     const out: Record<string, any> = {}
 
-    // --- new unified capabilities ---
-    if (capabilities.stream) out.streaming = true
-    if (capabilities.tools) out.function_call = true
-    if (capabilities.vision) out.vision = true
-    if (capabilities.json_schema) out.json_schema = true
-    if (capabilities.max_context_tokens) out.max_context_tokens = capabilities.max_context_tokens
-    if (capabilities.max_output_tokens) out.output_token_limit = capabilities.max_output_tokens
-    if (Array.isArray(capabilities.supported_response_formats)) {
-        out.supported_response_formats = capabilities.supported_response_formats
+    if (caps.stream) out.streaming = true
+    if (caps.tools) out.function_call = true
+    if (caps.vision) out.vision = true
+    if (caps.json_schema) out.json_schema = true
+    if (caps.max_context_tokens) out.max_context_tokens = caps.max_context_tokens
+    if (caps.max_output_tokens) out.output_token_limit = caps.max_output_tokens
+    if (Array.isArray(caps.supported_response_formats) && caps.supported_response_formats.length > 1) {
+        out.supported_response_formats = caps.supported_response_formats
     }
 
-    // --- fallback to legacy properties (only when missing above) ---
-    if (out.streaming === undefined && properties.streaming) out.streaming = true
-    if (out.function_call === undefined && properties.function_call) out.function_call = true
-    if (out.vision === undefined && properties.vision) out.vision = true
-    if (out.json_schema === undefined && properties.json_schema) out.json_schema = true
-    if (out.max_context_tokens === undefined && properties.input_token_limit) {
-        out.max_context_tokens = properties.input_token_limit
-    }
-    if (out.output_token_limit === undefined && properties.output_token_limit) {
-        out.output_token_limit = properties.output_token_limit
-    }
-    if (out.supported_response_formats === undefined && Array.isArray(properties.supported_response_formats)) {
-        out.supported_response_formats = properties.supported_response_formats
-    }
-
-    // text-embedding only fields
-    if (properties.embedding_size) out.embedding_size = properties.embedding_size
-    if (properties.max_batch_size) out.max_batch_size = properties.max_batch_size
+    // text-embedding only fields (legacy properties, not part of capabilities)
+    const rawProps = props.properties || props || {}
+    if (rawProps.embedding_size) out.embedding_size = rawProps.embedding_size
+    if (rawProps.max_batch_size) out.max_batch_size = rawProps.max_batch_size
 
     return out
 }
