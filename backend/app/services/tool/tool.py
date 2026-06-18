@@ -11,6 +11,7 @@ from tkhelper.error import raise_request_validation_error
 
 from .action import run_action
 from .plugin import get_plugin, run_plugin
+from .artifact_sanitizer import sanitize_artifacts_backend
 
 router = APIRouter()
 
@@ -125,6 +126,8 @@ async def run_tools(tool_inputs: List[ToolInput]) -> List[ToolOutput]:
                     artifacts.append(Artifact(**artifact_data))
                 except Exception:
                     pass
+            # Apply backend-side sanitization as a safety layer
+            artifacts = sanitize_artifacts_backend(artifacts)
             tool_outputs.append(
                 ToolOutput(
                     type=tool.type,

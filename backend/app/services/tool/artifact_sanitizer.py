@@ -1,0 +1,99 @@
+import json
+import logging
+from typing import List, Any, Optional
+
+from app.models.tool.tool import Artifact, ArtifactType
+
+logger = logging.getLogger(__name__)
+
+
+# Same limits as plugin side for consistency
+MAX_ARTIFACTS_COUNT = 10
+MAX_TEXT_INLINE_CHARS = 2000
+MAX_JSON_INLINE_CHARS = 3000
+MAX_TABLE_INLINE_ROWS = 20
+MAX_TABLE_INLINE_COLUMNS = 15
+MAX_METADATA_INLINE_CHARS = 500
+
+
+def _truncate_text(text: str, max_chars: int) -> str:
+    if text is None:
+        return ""
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars] + "... (truncated)"
+
+
+def sanitize_artifacts_backend(
+    artifacts: List[Artifact],
+) -> List[Artifact]:
+    """
+    Lightweight backend-side sanitizer as an extra safety layer.
+    The plugin-side sanitizer already handles offloading; this just trims any
+    large content that might have slipped through, to keep message payloads small.
+    """
+    if not artifacts:
+        return []
+
+    # 1) Cap artifact count
+    if len(artifacts) > MAX_ARTIFACTS_COUNT:
+        logger.info(f"Backend: truncating artifacts from {len(artifacts)} to {MAX_ARTIFACTS_COUNT}")
+        artifacts = artifacts[:MAX_ARTIFACTS_COUNT]
+
+    sanitized: List[Artifact] = []
+    for art in artifacts:
+        try:
+            sanitized.append(_sanitize_single(art))
+        except Exception as e:
+            logger.warning(f"Backend: failed to sanitize artifact: {e}")
+
+    return sanitized
+
+
+def _sanitize_single(artifact: Artifact) -> Artifact:
+    art = artifact.model_copy()
+
+    # Truncate metadata
+    if art.metadata:
+        try:
+            meta_str = json.dumps(art.metadata, ensure_ascii=False)
+            if len(meta_str) > MAX_METADATA_INLINE_CHARS:
+                art.metadata = {"_truncated": True, "summary": meta_str[:MAX_METADATA_INLINE_CHARS] + "..."}
+        except Exception:
+            art.metadata = None
+
+    # Truncate content per type
+    if art.type == ArtifactType.TEXT and art.content:
+        content_str = art.content if isinstance(art.content, str) else str(art.content)
+        art.content = _truncate_text(content_str, MAX_TEXT_INLINE_CHARS)
+
+    elif art.type == ArtifactType.JSON and art.content:
+        try:
+            if isinstance(art.content, str):
+                art.content = _truncate_text(art.content, MAX_JSON_INLINE_CHARS)
+            else:
+                content_str = json.dumps(art.content, ensure_ascii=False)
+                art.content = _truncate_text(content_str, MAX_JSON_INLINE_CHARS)
+        except Exception:
+            art.content = _truncate_text(str(art.content), MAX_JSON_INLINE_CHARS)
+
+    elif art.type == ArtifactType.TABLE and isinstance(art.content, dict):
+        columns = art.content.get("columns", []) or []
+        rows = art.content.get("rows", []) or []
+        truncated_columns = columns[:MAX_TABLE_INLINE_COLUMNS]
+        truncated_rows = [row[:MAX_TABLE_INLINE_COLUMNS] for row in rows[:MAX_TABLE_INLINE_ROWS]]
+
+        existing_truncated = art.content.get("truncated", {}) or {}
+        truncated_content = {
+            "columns": truncated_columns,
+            "rows": truncated_rows,
+            "truncated": {
+                "total_columns": existing_truncated.get("total_columns", len(columns)),
+                "total_rows": existing_truncated.get("total_rows", len(rows)),
+                "shown_columns": len(truncated_columns),
+                "shown_rows": len(truncated_rows),
+            },
+        }
+        art.content = truncated_content
+
+    return art

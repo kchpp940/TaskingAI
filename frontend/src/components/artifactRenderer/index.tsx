@@ -31,6 +31,7 @@ const formatFileSize = (bytes?: number): string => {
 const TextArtifact: React.FC<{ artifact: Artifact }> = ({ artifact }) => {
     const content = artifact.content || '';
     const isLong = typeof content === 'string' && content.length > 500;
+    const isTruncated = typeof content === 'string' && content.endsWith('... (truncated)');
 
     return (
         <div className={styles.artifactItem}>
@@ -38,6 +39,7 @@ const TextArtifact: React.FC<{ artifact: Artifact }> = ({ artifact }) => {
                 <Tag color="blue">text</Tag>
                 <Text strong>{artifact.title || 'Text Content'}</Text>
                 {artifact.mime_type && <Text type="secondary" className={styles.mimeType}>{artifact.mime_type}</Text>}
+                {isTruncated && <Tag color="warning">Truncated preview</Tag>}
             </div>
             <div className={styles.artifactContent}>
                 {isLong ? (
@@ -52,6 +54,17 @@ const TextArtifact: React.FC<{ artifact: Artifact }> = ({ artifact }) => {
                     <Paragraph style={{ whiteSpace: 'pre-wrap', marginBottom: 0 }}>
                         {content}
                     </Paragraph>
+                )}
+                {artifact.download_url && (
+                    <div className={styles.actionRow}>
+                        <Button
+                            type="primary"
+                            icon={<DownloadOutlined />}
+                            onClick={() => window.open(artifact.download_url, '_blank')}
+                        >
+                            Download Full Content
+                        </Button>
+                    </div>
                 )}
             </div>
         </div>
@@ -140,12 +153,14 @@ const FileArtifact: React.FC<{ artifact: Artifact }> = ({ artifact }) => {
 const JsonArtifact: React.FC<{ artifact: Artifact }> = ({ artifact }) => {
     const [expanded, setExpanded] = useState(false);
     const jsonContent = typeof artifact.content === 'string' ? artifact.content : JSON.stringify(artifact.content, null, 2);
+    const isTruncated = typeof jsonContent === 'string' && jsonContent.endsWith('... (truncated)');
 
     return (
         <div className={styles.artifactItem}>
             <div className={styles.artifactHeader}>
                 <Tag color="purple">json</Tag>
                 <Text strong>{artifact.title || 'JSON Data'}</Text>
+                {isTruncated && <Tag color="warning">Truncated preview</Tag>}
             </div>
             <div className={styles.artifactContent}>
                 <Collapse
@@ -159,6 +174,17 @@ const JsonArtifact: React.FC<{ artifact: Artifact }> = ({ artifact }) => {
                         </pre>
                     </Panel>
                 </Collapse>
+                {artifact.download_url && (
+                    <div className={styles.actionRow}>
+                        <Button
+                            type="primary"
+                            icon={<DownloadOutlined />}
+                            onClick={() => window.open(artifact.download_url, '_blank')}
+                        >
+                            Download Full JSON
+                        </Button>
+                    </div>
+                )}
             </div>
         </div>
     );
@@ -168,6 +194,8 @@ const TableArtifact: React.FC<{ artifact: Artifact }> = ({ artifact }) => {
     const data = artifact.content;
     const columns = data?.columns || [];
     const rows = data?.rows || [];
+    const truncated = data?.truncated;
+    const isTruncated = truncated && (truncated.total_rows > truncated.shown_rows || truncated.total_columns > truncated.shown_columns);
 
     const tableColumns = columns.map((col: string, index: number) => ({
         title: col,
@@ -183,12 +211,22 @@ const TableArtifact: React.FC<{ artifact: Artifact }> = ({ artifact }) => {
         return rowData;
     });
 
+    const truncationNote = isTruncated ? (
+        <Tag color="warning">
+            Showing {truncated.shown_rows} of {truncated.total_rows} rows
+            {truncated.total_columns > truncated.shown_columns && `, ${truncated.shown_columns} of ${truncated.total_columns} cols`}
+        </Tag>
+    ) : null;
+
     return (
         <div className={styles.artifactItem}>
             <div className={styles.artifactHeader}>
                 <Tag color="cyan">table</Tag>
                 <Text strong>{artifact.title || 'Table Data'}</Text>
-                {rows.length > 0 && <Text type="secondary" className={styles.mimeType}>{rows.length} rows</Text>}
+                {rows.length > 0 && <Text type="secondary" className={styles.mimeType}>
+                    {truncated ? `${truncated.total_rows} rows` : `${rows.length} rows`}
+                </Text>}
+                {truncationNote}
             </div>
             <div className={styles.artifactContent}>
                 {columns.length > 0 && rows.length > 0 ? (
@@ -202,6 +240,17 @@ const TableArtifact: React.FC<{ artifact: Artifact }> = ({ artifact }) => {
                 ) : (
                     <div className={styles.placeholder}>
                         <Text type="secondary">No table data available</Text>
+                    </div>
+                )}
+                {artifact.download_url && (
+                    <div className={styles.actionRow}>
+                        <Button
+                            type="primary"
+                            icon={<DownloadOutlined />}
+                            onClick={() => window.open(artifact.download_url, '_blank')}
+                        >
+                            Download Full Table
+                        </Button>
                     </div>
                 )}
             </div>

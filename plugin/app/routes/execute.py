@@ -14,6 +14,7 @@ from app.models import (
     Artifact,
     ArtifactType,
 )
+from app.service.artifact_sanitizer import sanitize_artifacts
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -326,6 +327,17 @@ async def api_execute(
                 )
         except Exception as e:
             logger.warning(f"api_execute: auto-convert artifacts failed: {e}")
+
+    # Sanitize artifacts: enforce size/count limits, offload large content
+    if plugin_output.artifacts:
+        try:
+            project_id = data.input_params.get("project_id") if data.input_params else None
+            plugin_output.artifacts = await sanitize_artifacts(
+                plugin_output.artifacts,
+                project_id=project_id,
+            )
+        except Exception as e:
+            logger.warning(f"api_execute: sanitize artifacts failed: {e}")
 
     return RunToolResponse(
         data=plugin_output,
