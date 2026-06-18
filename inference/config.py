@@ -12,9 +12,6 @@ default_env_values = {
     "SERVICE_PORT": 8000,
     "AES_ENCRYPTION_KEY": "b90e4648ad699c3bdf62c0860e09eb9efc098ee75f215bf750847ae19d41e4b0",
     "DEFAULT_LANG": "en",
-    "EMBEDDING_CACHE_TTL": 300,
-    "EMBEDDING_CACHE_MAX_SIZE": 10000,
-    "REDIS_URL": "",
 }
 
 
@@ -96,11 +93,6 @@ class Config:
             self.PROVIDER_URL_BLACK_LIST = [url.strip() for url in self.PROVIDER_URL_BLACK_LIST]
 
         self.PATH_TO_VOLUME = load_str_env("PATH_TO_VOLUME")
-
-        self.EMBEDDING_CACHE_TTL = load_int_env("EMBEDDING_CACHE_TTL") or 300
-        self.EMBEDDING_CACHE_MAX_SIZE = load_int_env("EMBEDDING_CACHE_MAX_SIZE") or 10000
-
-        self.REDIS_URL = load_str_env("REDIS_URL") or ""
 
 
 CONFIG = Config()

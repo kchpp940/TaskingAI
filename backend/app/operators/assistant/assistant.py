@@ -20,6 +20,14 @@ from ..model import model_ops
 __all__ = ["assistant_ops"]
 
 
+def _format_model_caps_error(model: Model, capability: str, reason: str) -> str:
+    """Generate a consistent, user-friendly capability error."""
+    return (
+        f"The assistant's language model {model.model_id} ({model.model_schema_id}) "
+        f"does not support {capability}. {reason}"
+    )
+
+
 async def _validate_tools(
     tools: List[ToolRef],
     model: Model,
@@ -37,7 +45,11 @@ async def _validate_tools(
 
     if not model.allow_function_call():
         raise_request_validation_error(
-            f"The assistant's language model {model.model_id} does not support function call to use the tools.",
+            _format_model_caps_error(
+                model,
+                "tool/function calling",
+                "Choose a model with the `tools` capability, or remove the tools from the assistant.",
+            ),
         )
 
     await verify_tools(tools)
@@ -62,7 +74,11 @@ async def _validate_retrievals(
 
     if retrieval_configs.method == RetrievalMethod.FUNCTION_CALL and not model.allow_function_call():
         raise_request_validation_error(
-            f"The assistant's language model {model.model_id} does not support function call to use retrieval.",
+            _format_model_caps_error(
+                model,
+                "function-call retrieval",
+                "Choose a model with the `tools` capability, or switch the retrieval method.",
+            ),
         )
 
     await verify_retrievals(retrievals)

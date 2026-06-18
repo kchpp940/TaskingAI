@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Optional, List, Union
+from typing import Optional, List, Union, Any, Dict
 from pydantic import BaseModel, Field
 from abc import ABCMeta
 from .chat_completion_function import ChatCompletionFunctionCall
@@ -16,6 +16,7 @@ __all__ = [
     "ChatCompletionFinishReason",
     "ChatCompletion",
     "ChatCompletionChunk",
+    "has_multimodal_user_message",
 ]
 
 
@@ -26,10 +27,34 @@ class ChatCompletionRole(str, Enum):
     FUNCTION = "function"
 
 
+class ChatCompletionContentType(str, Enum):
+    TEXT = "text"
+    IMAGE_URL = "image_url"
+
+
+class ChatCompletionTextContentPart(BaseModel):
+    type: str = Field("text", Literal="text")
+    text: str = Field(...)
+
+
+class ChatCompletionImageUrlPart(BaseModel):
+    url: str = Field(...)
+
+
+class ChatCompletionImageContentPart(BaseModel):
+    type: str = Field("image_url", Literal="image_url")
+    image_url: ChatCompletionImageUrlPart = Field(...)
+
+
+ChatCompletionMultimodalContent = List[
+    Union[ChatCompletionTextContentPart, ChatCompletionImageContentPart]
+]
+
+
 class ChatCompletionMessage(BaseModel, metaclass=ABCMeta):
-    content: Optional[str] = Field(
+    content: Optional[Union[str, ChatCompletionMultimodalContent, Any]] = Field(
         None,
-        description="The content of the message.",
+        description="The content of the message. Can be text string or multimodal list for vision models.",
         examples=["What is the sum of 12 + 23?"],
     )
 
@@ -87,6 +112,22 @@ ChatCompletionAnyMessage = Union[
     ChatCompletionUserMessage,
     ChatCompletionSystemMessage,
 ]
+
+
+def has_multimodal_user_message(messages: List[Any]) -> bool:
+    """
+    Check if any user message contains multimodal (image) content.
+    Accepts both pydantic model instances and raw dicts.
+    """
+    for message in messages:
+        msg_dict = message.model_dump() if hasattr(message, "model_dump") else message
+        if msg_dict.get("role") == "user":
+            content = msg_dict.get("content")
+            if isinstance(content, list):
+                for part in content:
+                    if isinstance(part, dict) and part.get("type") == "image_url":
+                        return True
+    return False
 
 
 class ChatCompletionUsage(BaseModel):

@@ -41,6 +41,39 @@ class Model(ModelEntity):
 
         return get_provider(self.provider_id)
 
+    def get_capabilities(self) -> Dict:
+        """
+        Get unified capabilities declaration.
+        Merges model_schema declared capabilities with model-level properties overrides.
+        """
+        schema = self.model_schema()
+        schema_caps = schema.get_capabilities() if schema else {}
+
+        # model-level properties can override schema defaults (wildcard models)
+        props = self.properties or {}
+        caps = dict(schema_caps)
+
+        if props.get("streaming") is not None:
+            caps["stream"] = bool(props["streaming"])
+        if props.get("function_call") is not None:
+            caps["tools"] = bool(props["function_call"])
+        if props.get("vision") is not None:
+            caps["vision"] = bool(props["vision"])
+        if props.get("json_schema") is not None:
+            caps["json_schema"] = bool(props["json_schema"])
+        if props.get("input_token_limit") is not None:
+            caps["max_context_tokens"] = props["input_token_limit"]
+        if props.get("output_token_limit") is not None:
+            caps["max_output_tokens"] = props["output_token_limit"]
+        if props.get("supported_response_formats") is not None:
+            caps["supported_response_formats"] = props["supported_response_formats"]
+        if caps.get("json_schema") and "json_schema" not in caps.get("supported_response_formats", []):
+            caps["supported_response_formats"] = [
+                *caps.get("supported_response_formats", ["text"]),
+                "json_schema",
+            ]
+        return caps
+
     def is_chat_completion(self):
         return self.type == "chat_completion"
 
@@ -54,10 +87,19 @@ class Model(ModelEntity):
         return self.provider_id == "custom_host"
 
     def allow_function_call(self):
-        return self.type == "chat_completion" and self.properties.get("function_call", False)
+        return self.get_capabilities().get("tools", False)
 
     def allow_streaming(self):
-        return self.type == "chat_completion" and self.properties.get("streaming", False)
+        return self.get_capabilities().get("stream", False)
+
+    def allow_vision_input(self):
+        return self.get_capabilities().get("vision", False)
+
+    def allow_json_schema(self):
+        return self.get_capabilities().get("json_schema", False)
+
+    def supports_response_format(self, fmt: str) -> bool:
+        return fmt in self.get_capabilities().get("supported_response_formats", [])
 
     @classmethod
     def build(cls, row: Dict):
@@ -99,6 +141,7 @@ class Model(ModelEntity):
             "name": self.name,
             "type": self.type,
             "properties": model_schema.properties or self.properties,
+            "capabilities": self.get_capabilities(),
             "fallbacks": self.fallbacks.model_dump() if self.fallbacks else None,
             "configs": self.configs,
             "display_credentials": self.display_credentials,

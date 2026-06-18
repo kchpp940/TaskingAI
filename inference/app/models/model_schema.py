@@ -2,7 +2,7 @@ from enum import Enum
 from pydantic import BaseModel, ValidationError
 from typing import Dict, Optional, List, Tuple
 from .utils import i18n_text
-from .base import BaseModelProperties, BaseModelPricing
+from .base import BaseModelProperties, BaseModelPricing, ModelCapabilities
 from app.error import raise_http_error, ErrorCode
 from .model_config import load_config
 import warnings
@@ -33,38 +33,41 @@ class ModelSchema(BaseModel):
     config_schemas: List[Dict]
     pricing: Optional[BaseModelPricing]
 
-    def allow_stream(self):
-        if self.type == ModelType.CHAT_COMPLETION or self.type == ModelType.WILDCARD:
-            from .chat_completion import ChatCompletionModelProperties
+    def get_capabilities(self) -> ModelCapabilities:
+        """
+        Get the unified capabilities declaration for this model schema.
+        Works for all model types — chat_completion, text_embedding, rerank, wildcard.
+        """
+        from .chat_completion import ChatCompletionModelProperties
 
-            if self.properties is None:
-                return True
-            properties: ChatCompletionModelProperties = self.properties
-            if properties.streaming:
-                return True
-        return False
+        if self.type in (ModelType.CHAT_COMPLETION, ModelType.WILDCARD) and self.properties is not None:
+            if isinstance(self.properties, ChatCompletionModelProperties):
+                return self.properties.to_capabilities()
+
+        # Default capabilities for non-chat models or when properties not set
+        caps = ModelCapabilities()
+        if self.properties is not None:
+            props_dict = self.properties.model_dump(exclude_none=True)
+            if "input_token_limit" in props_dict:
+                caps.max_context_tokens = props_dict["input_token_limit"]
+            if "output_token_limit" in props_dict:
+                caps.max_output_tokens = props_dict["output_token_limit"]
+        return caps
+
+    def allow_stream(self):
+        return self.get_capabilities().stream
 
     def allow_function_call(self):
-        if self.type == ModelType.CHAT_COMPLETION or self.type == ModelType.WILDCARD:
-            from .chat_completion import ChatCompletionModelProperties
-
-            if self.properties is None:
-                return True
-            properties: ChatCompletionModelProperties = self.properties
-            if properties.function_call:
-                return True
-        return False
+        return self.get_capabilities().tools
 
     def allow_vision_input(self):
-        if self.type == ModelType.CHAT_COMPLETION or self.type == ModelType.WILDCARD:
-            from .chat_completion import ChatCompletionModelProperties
+        return self.get_capabilities().vision
 
-            if self.properties is None:
-                return True
-            properties: ChatCompletionModelProperties = self.properties
-            if properties.vision:
-                return True
-        return False
+    def allow_json_schema(self):
+        return self.get_capabilities().json_schema
+
+    def supports_response_format(self, fmt: str) -> bool:
+        return fmt in self.get_capabilities().supported_response_formats
 
     @staticmethod
     def object_name():
@@ -129,6 +132,7 @@ class ModelSchema(BaseModel):
             "provider_model_id": self.provider_model_id,
             "type": self.type.value,
             "properties": self.properties.model_dump(exclude_none=True) if self.properties else None,
+            "capabilities": self.get_capabilities().to_dict(),
             "config_schemas": self.config_schemas,
             "allowed_configs": [config["config_id"] for config in self.config_schemas],
             "pricing": self.pricing.model_dump(exclude_none=True) if self.pricing else None,

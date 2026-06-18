@@ -14,6 +14,7 @@ from app.services.inference.chat_completion import chat_completion, stream_chat_
 from app.services.assistant.generation import StatelessNormalSession, StatelessStreamSession
 from app.operators import model_ops, assistant_ops
 from app.models import Model, Assistant
+from app.models.inference import has_multimodal_user_message
 
 from ..utils import auth_info_required, is_model_id, is_assistant_id
 
@@ -28,6 +29,60 @@ def error_message(code, message: str):
         "code": code,
         "message": message,
     }
+
+
+def _validate_model_capabilities(model: Model, data: ChatCompletionRequest) -> None:
+    """
+    Centralized capability validation before generation.
+    Raises clear, user-friendly errors when the model lacks required capabilities.
+    """
+    functions = [function.model_dump() for function in data.functions] if data.functions is not None else None
+    vision_input = has_multimodal_user_message(data.messages)
+    configs = data.configs or {}
+    response_format = configs.get("response_format")
+
+    # --- streaming ---
+    if data.stream and not model.allow_streaming():
+        raise_request_validation_error(
+            f"Model {model.model_id} ({model.model_schema_id}) does not support streaming. "
+            "Choose a model with the `stream` capability or disable streaming."
+        )
+
+    # --- tools / function call ---
+    if functions and not model.allow_function_call():
+        raise_request_validation_error(
+            f"Model {model.model_id} ({model.model_schema_id}) does not support tool/function calling. "
+            "Choose a model with the `tools` capability to use functions."
+        )
+
+    # --- vision / image input ---
+    if vision_input and not model.allow_vision_input():
+        raise_request_validation_error(
+            f"Model {model.model_id} ({model.model_schema_id}) does not support vision (image input). "
+            "Choose a model with the `vision` capability for multimodal messages."
+        )
+
+    # --- response_format / JSON mode ---
+    if response_format:
+        fmt = response_format.lower() if isinstance(response_format, str) else str(response_format).lower()
+        normalized = None
+        if fmt in ("json", "json_object"):
+            normalized = "json_object"
+        elif fmt == "json_schema":
+            normalized = "json_schema"
+        if normalized:
+            if normalized == "json_schema" and not model.allow_json_schema():
+                raise_request_validation_error(
+                    f"Model {model.model_id} ({model.model_schema_id}) does not support structured output "
+                    "with JSON schema. Choose a model with the `json_schema` capability."
+                )
+            if not model.supports_response_format(normalized):
+                caps = model.get_capabilities()
+                raise_request_validation_error(
+                    f"Model {model.model_id} ({model.model_schema_id}) does not support "
+                    f"response_format='{normalized}'. Supported formats: "
+                    f"{caps.get('supported_response_formats', ['text'])}."
+                )
 
 
 @router.post(
@@ -61,6 +116,9 @@ async def api_chat_completion(
             input_configs = data.configs or {}
             model_configs = model.configs or {}
             configs = {**model_configs, **input_configs}
+
+            # unified capabilities check BEFORE attempting inference
+            _validate_model_capabilities(model, data)
 
             # check function call ability
             if functions and not model.allow_function_call():
@@ -118,6 +176,9 @@ async def api_chat_completion(
     elif is_assistant_id(assistant_id=data.model_id):
         # validate assistant
         assistant: Assistant = await assistant_ops.get(assistant_id=data.model_id)
+        # validate underlying model capabilities up-front
+        model: Model = await model_ops.get(model_id=assistant.model_id)
+        _validate_model_capabilities(model, data)
 
         # perform chat completion with assistant
         if data.stream:

@@ -1,5 +1,6 @@
 from ..models import *
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Union, Any
+from pydantic import Field
 
 __all__ = [
     "OpenaiChatCompletionRequest",
@@ -7,6 +8,21 @@ __all__ = [
     "OpenaiChoice",
     "OpenaiCompletionUsage",
 ]
+
+
+class OpenaiResponseFormatJsonObject(BaseModel):
+    type: str = Field("json_object", Literal="json_object", description="JSON object response format.")
+
+
+class OpenaiResponseFormatJsonSchema(BaseModel):
+    type: str = Field("json_schema", Literal="json_schema", description="JSON schema response format.")
+    json_schema: Optional[Dict[str, Any]] = Field(
+        None,
+        description="The JSON schema to enforce on the response.",
+    )
+
+
+OpenaiResponseFormat = Union[str, OpenaiResponseFormatJsonObject, OpenaiResponseFormatJsonSchema]
 
 
 class OpenaiChatCompletionRequest(BaseModel):
@@ -51,6 +67,12 @@ class OpenaiChatCompletionRequest(BaseModel):
         False,
         description="Indicates whether the response should be streamed. If set to True, the response will be streamed\
         using Server-Sent Events (SSE).",
+    )
+
+    response_format: Optional[OpenaiResponseFormat] = Field(
+        None,
+        description="An object specifying the format that the model must output. Compatible with GPT-4o, GPT-4 Turbo,\
+        and all GPT-3.5 Turbo models newer than gpt-3.5-turbo-1106.",
     )
 
 

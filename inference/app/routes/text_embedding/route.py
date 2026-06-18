@@ -9,11 +9,9 @@ from app.cache import get_text_embedding_model
 from app.error import raise_http_error, ErrorCode, TKHttpException, error_messages
 from app.models.tokenizer import string_tokens
 import asyncio
-import time
 from .schema import *
-from .embedding_cache import generate_cache_key, get_cached, set_cached, begin_request, end_request, get_backend_status
 import logging
-from typing import Dict, List, Optional
+from typing import List, Optional
 import numpy as np
 from config import CONFIG
 
@@ -64,7 +62,6 @@ async def embed_batch(
 async def embed_text(
     provider_id: str,
     provider_model_id: str,
-    model_schema_id: str,
     input: List[str],
     credentials: ProviderCredentials,
     properties: TextEmbeddingModelProperties,
@@ -72,45 +69,7 @@ async def embed_text(
     input_type: Optional[TextEmbeddingInputType] = None,
     proxy: Optional[str] = None,
     custom_headers: Optional[Dict[str, str]] = None,
-    cache_ttl: int = 300,
-) -> tuple:
-    start_time = time.time()
-    begin_request()
-    try:
-        return await _embed_text_inner(
-            provider_id=provider_id,
-            provider_model_id=provider_model_id,
-            model_schema_id=model_schema_id,
-            input=input,
-            credentials=credentials,
-            properties=properties,
-            configs=configs,
-            input_type=input_type,
-            proxy=proxy,
-            custom_headers=custom_headers,
-            cache_ttl=cache_ttl,
-            start_time=start_time,
-        )
-    finally:
-        end_request()
-
-
-async def _embed_text_inner(
-    provider_id: str,
-    provider_model_id: str,
-    model_schema_id: str,
-    input: List[str],
-    credentials: ProviderCredentials,
-    properties: TextEmbeddingModelProperties,
-    configs: TextEmbeddingModelConfiguration,
-    input_type: Optional[TextEmbeddingInputType] = None,
-    proxy: Optional[str] = None,
-    custom_headers: Optional[Dict[str, str]] = None,
-    cache_ttl: int = 300,
-    start_time: Optional[float] = None,
-) -> tuple:
-    if start_time is None:
-        start_time = time.time()
+) -> TextEmbeddingResult:
     model = get_text_embedding_model(provider_id=provider_id)
     batch_size = properties.max_batch_size if properties else 512
 
@@ -119,105 +78,36 @@ async def _embed_text_inner(
             ErrorCode.REQUEST_VALIDATION_ERROR,
             f"Provider {provider_id} is not " f"supported through the text_embedding API.",
         )
+    # Split input into batches
+    batches = [input[i : i + batch_size] for i in range(0, len(input), batch_size)]
 
-    input_type_str = input_type.value if input_type else None
+    merged_results = []  # Initialize merged results list
 
-    cache_hits = 0
-    provider_calls = 0
-    batch_count = 0
+    # Process in chunks of 20 to respect max parallel tasks limit
+    max_parallel_tasks = 20
+    for i in range(0, len(batches), max_parallel_tasks):
+        tasks = []
+        for batch in batches[i : i + max_parallel_tasks]:
+            task = embed_batch(
+                model=model,
+                provider_model_id=provider_model_id,
+                batch_input=batch,
+                credentials=credentials,
+                configs=configs,
+                input_type=input_type,
+                proxy=proxy,
+                custom_headers=custom_headers,
+            )
+            tasks.append(task)
 
-    unique_cache_keys = []
-    cache_key_to_text: Dict[str, str] = {}
-    unique_indices_map: Dict[str, List[int]] = {}
-    cached_embeddings: Dict[int, List[float]] = {}
+        # Run embedding in parallel for each batch within the current chunk
+        batch_results = await asyncio.gather(*tasks)
 
-    for idx, text in enumerate(input):
-        cache_key = generate_cache_key(
-            model_schema_id=model_schema_id,
-            provider_model_id=provider_model_id,
-            text=text,
-            input_type=input_type_str,
-            properties=properties,
-        )
-        hit = await get_cached(cache_key, ttl=cache_ttl)
-        if hit is not None:
-            cached_embeddings[idx] = hit
-            cache_hits += 1
-        else:
-            if cache_key not in unique_indices_map:
-                unique_indices_map[cache_key] = []
-                unique_cache_keys.append(cache_key)
-                cache_key_to_text[cache_key] = text
-            unique_indices_map[cache_key].append(idx)
-
-    uncached_embeddings: Dict[int, List[float]] = {}
-
-    if unique_cache_keys:
-        unique_texts_for_provider = [cache_key_to_text[k] for k in unique_cache_keys]
-        batches = [unique_texts_for_provider[i : i + batch_size] for i in range(0, len(unique_texts_for_provider), batch_size)]
-        batch_count = len(batches)
-        batch_results_data = []
-
-        max_parallel_tasks = 20
-        for i in range(0, len(batches), max_parallel_tasks):
-            tasks = []
-            for batch in batches[i : i + max_parallel_tasks]:
-                task = embed_batch(
-                    model=model,
-                    provider_model_id=provider_model_id,
-                    batch_input=batch,
-                    credentials=credentials,
-                    configs=configs,
-                    input_type=input_type,
-                    proxy=proxy,
-                    custom_headers=custom_headers,
-                )
-                tasks.append(task)
-                provider_calls += 1
-
-            batch_results = await asyncio.gather(*tasks)
-            for batch_result in batch_results:
-                batch_results_data.extend(batch_result.data)
-
-        for result_idx, cache_key in enumerate(unique_cache_keys):
-            embedding = batch_results_data[result_idx].embedding
-            await set_cached(cache_key, embedding)
-            for orig_idx in unique_indices_map[cache_key]:
-                uncached_embeddings[orig_idx] = embedding
-
-    merged_results = []
-    for idx in range(len(input)):
-        if idx in cached_embeddings:
-            merged_results.append(TextEmbeddingOutput(index=idx, embedding=cached_embeddings[idx]))
-        else:
-            merged_results.append(TextEmbeddingOutput(index=idx, embedding=uncached_embeddings[idx]))
-
-    elapsed_ms = round((time.time() - start_time) * 1000, 2)
+        # Merge results while maintaining order
+        for batch_result in batch_results:
+            merged_results.extend(batch_result.data)
     usage = TextEmbeddingUsage(input_tokens=sum(string_tokens(i) for i in input))
-    configured_backend, effective_backend, fallback_reason = get_backend_status()
-
-    metadata = TextEmbeddingMetadata(
-        cache_backend=effective_backend,
-        configured_backend=configured_backend,
-        effective_backend=effective_backend,
-        fallback_reason=fallback_reason,
-        cache_hits=cache_hits,
-        total_inputs=len(input),
-        unique_keys=len(unique_cache_keys),
-        provider_calls=provider_calls,
-        batch_count=batch_count,
-        elapsed_ms=elapsed_ms,
-    )
-    fallback_suffix = f" fallback_reason={fallback_reason}" if fallback_reason else ""
-    logger.info(
-        f"embedding_cache: configured={configured_backend} effective={effective_backend} "
-        f"model_schema_id={model_schema_id} "
-        f"total={len(input)} unique_keys={len(unique_cache_keys)} "
-        f"cache_hits={cache_hits} provider_calls={provider_calls} "
-        f"batches={batch_count} elapsed_ms={elapsed_ms}{fallback_suffix}"
-    )
-
-    return TextEmbeddingResult(data=merged_results, usage=usage), metadata
+    return TextEmbeddingResult(data=merged_results, usage=usage)
 
 
 # Note: TextEmbeddingResult should be structured to accumulate and return results from multiple batches.
@@ -293,10 +183,9 @@ async def api_text_embedding(
                 ),
             )
         try:
-            response, metadata = await embed_text(
+            response = await embed_text(
                 provider_id=model_schema.provider_id,
                 provider_model_id=provider_model_id,
-                model_schema_id=model_schema.model_schema_id,
                 input=input,
                 credentials=provider_credentials,
                 properties=properties,
@@ -304,12 +193,11 @@ async def api_text_embedding(
                 input_type=data.input_type,
                 proxy=data.proxy,
                 custom_headers=data.custom_headers,
-                cache_ttl=CONFIG.EMBEDDING_CACHE_TTL,
             )
             fallback_index = None
             if i:
                 fallback_index = i - 1
-            return TextEmbeddingResponse(data=response.data, usage=response.usage, fallback_index=fallback_index, metadata=metadata)
+            return TextEmbeddingResponse(data=response.data, usage=response.usage, fallback_index=fallback_index)
         except TKHttpException as e:
             logger.error(f"text_embedding: provider {model_schema.provider_id} error = {e}")
             last_exception = e
