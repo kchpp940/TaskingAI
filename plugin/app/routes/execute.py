@@ -328,16 +328,26 @@ async def api_execute(
         except Exception as e:
             logger.warning(f"api_execute: auto-convert artifacts failed: {e}")
 
-    # Sanitize artifacts: enforce size/count limits, offload large content
-    if plugin_output.artifacts:
+    # Sanitize both artifacts AND legacy data payload
+    # - Artifacts: enforce size/count limits, offload large content to storage
+    # - Data: trim large values to keep LLM context and message payloads small
+    if plugin_output.status == 200 and plugin_output.artifacts:
         try:
+            from app.service.artifact_sanitizer import sanitize_plugin_output
             project_id = data.input_params.get("project_id") if data.input_params else None
-            plugin_output.artifacts = await sanitize_artifacts(
+            sanitized_data, sanitized_artifacts = await sanitize_plugin_output(
+                plugin_output.data,
                 plugin_output.artifacts,
                 project_id=project_id,
             )
+            plugin_output.data = sanitized_data
+            plugin_output.artifacts = sanitized_artifacts
+            logger.info(
+                f"api_execute: sanitized output for {data.bundle_id}/{data.plugin_id}: "
+                f"{len(sanitized_artifacts)} artifacts, data ~{len(str(sanitized_data))} chars"
+            )
         except Exception as e:
-            logger.warning(f"api_execute: sanitize artifacts failed: {e}")
+            logger.warning(f"api_execute: sanitize plugin output failed: {e}")
 
     return RunToolResponse(
         data=plugin_output,

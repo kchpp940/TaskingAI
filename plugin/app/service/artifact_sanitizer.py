@@ -1,7 +1,7 @@
 import json
 import os
 import logging
-from typing import List, Any, Optional
+from typing import List, Any, Optional, Dict, Tuple
 from pydantic import BaseModel, Field
 
 from app.models.plugin_handler import Artifact, ArtifactType
@@ -38,6 +38,17 @@ MAX_METADATA_INLINE_CHARS = 500
 #   3. Set download_url to retrieve the full content
 LARGE_CONTENT_THRESHOLD_CHARS = 1500
 LARGE_TABLE_ROWS_THRESHOLD = 50
+
+# ============================================================
+# Legacy data payload sanitization
+# ============================================================
+
+# Max size (chars) for the entire data JSON before we trim it
+MAX_DATA_TOTAL_CHARS = 3000
+# Max size for any individual string value in data
+MAX_DATA_VALUE_CHARS = 500
+# Max items in list/array values in data
+MAX_DATA_LIST_ITEMS = 10
 
 
 # ============================================================
@@ -280,3 +291,136 @@ async def _sanitize_table_artifact(art: Artifact, project_id: Optional[str]) -> 
     art.content = truncated_content
 
     return art
+
+
+# ============================================================
+# Legacy data payload sanitization
+# ============================================================
+
+def _trim_data_value(value: Any, max_chars: int = MAX_DATA_VALUE_CHARS, max_list_items: int = MAX_DATA_LIST_ITEMS, depth: int = 0) -> Any:
+    """Recursively trim large values in a data structure."""
+    if depth > 5:
+        return "... (nested too deep)"
+
+    if isinstance(value, str):
+        if len(value) > max_chars:
+            return value[:max_chars] + "... (truncated)"
+        return value
+
+    elif isinstance(value, list):
+        if len(value) > max_list_items:
+            trimmed = [_trim_data_value(item, max_chars, max_list_items, depth + 1) for item in value[:max_list_items]]
+            trimmed.append(f"... ({len(value) - max_list_items} more items)")
+            return trimmed
+        return [_trim_data_value(item, max_chars, max_list_items, depth + 1) for item in value]
+
+    elif isinstance(value, dict):
+        if depth == 0:
+            # Top-level dict: keep all keys but trim values
+            return {k: _trim_data_value(v, max_chars, max_list_items, depth + 1) for k, v in value.items()}
+        else:
+            # Nested dict: limit to 20 keys
+            items = list(value.items())
+            if len(items) > 20:
+                result = {k: _trim_data_value(v, max_chars, max_list_items, depth + 1) for k, v in items[:20]}
+                result["..."] = f"({len(value) - 20} more keys)"
+                return result
+            return {k: _trim_data_value(v, max_chars, max_list_items, depth + 1) for k, v in value.items()}
+
+    else:
+        return value
+
+
+def _build_data_artifact_summary(artifacts: List[Artifact]) -> str:
+    """Build a human-readable summary of artifacts for inclusion in data."""
+    if not artifacts:
+        return ""
+
+    type_counts: Dict[str, int] = {}
+    for art in artifacts:
+        t = art.type.value if hasattr(art.type, 'value') else str(art.type)
+        type_counts[t] = type_counts.get(t, 0) + 1
+
+    parts = []
+    for t, count in sorted(type_counts.items()):
+        parts.append(f"{count} {t}(s)")
+
+    return ", ".join(parts)
+
+
+async def sanitize_plugin_data(
+    data: Dict,
+    artifacts: List[Artifact],
+    project_id: Optional[str] = None,
+) -> Dict:
+    """
+    Sanitize the plugin output `data` dict to keep message payloads small:
+    - Trim large strings, long lists, deep nested structures
+    - If artifacts exist, add a summary field and trim aggressively
+    - For very large data, store full content to object storage and keep only reference
+    """
+    if not data:
+        return data
+
+    try:
+        # Quick size estimate
+        data_str = json.dumps(data, ensure_ascii=False)
+        total_chars = len(data_str)
+
+        # If data is small enough, leave it alone
+        if total_chars <= MAX_DATA_TOTAL_CHARS and not artifacts:
+            return data
+
+        # Start with trimmed data
+        sanitized = _trim_data_value(data)
+
+        # If we have artifacts, add a summary and note that full content is in artifacts
+        if artifacts:
+            summary = _build_data_artifact_summary(artifacts)
+            sanitized["_artifacts_summary"] = summary
+            sanitized["_note"] = "Full structured content available in message artifacts; data field is truncated for efficiency."
+
+        # If even trimmed data is too large, store full data and keep minimal reference
+        sanitized_str = json.dumps(sanitized, ensure_ascii=False)
+        if len(sanitized_str) > MAX_DATA_TOTAL_CHARS:
+            try:
+                full_data_url = await _save_artifact_content_to_storage(
+                    data_str, "application/json", project_id
+                )
+                if full_data_url:
+                    sanitized = {
+                        "_truncated": True,
+                        "_artifacts_summary": _build_data_artifact_summary(artifacts) if artifacts else "",
+                        "_full_data_url": full_data_url,
+                        "_note": "Data is large and has been truncated. See artifacts for structured content or download full data.",
+                    }
+                    logger.info(
+                        f"Data payload truncated from {total_chars} to {len(json.dumps(sanitized))} chars, "
+                        f"full content stored at: {full_data_url}"
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to store full data payload: {e}")
+
+        return sanitized
+
+    except Exception as e:
+        logger.warning(f"Failed to sanitize plugin data: {e}")
+        return data
+
+
+async def sanitize_plugin_output(
+    data: Dict,
+    artifacts: List[Artifact],
+    project_id: Optional[str] = None,
+) -> Tuple[Dict, List[Artifact]]:
+    """
+    Full pipeline: sanitize both artifacts AND the legacy data payload.
+    Returns a tuple of (sanitized_data, sanitized_artifacts).
+    """
+    # 1) Sanitize artifacts first (offload large content, truncate previews)
+    sanitized_artifacts = await sanitize_artifacts(artifacts, project_id)
+
+    # 2) Sanitize legacy data payload
+    sanitized_data = await sanitize_plugin_data(data, sanitized_artifacts, project_id)
+
+    return sanitized_data, sanitized_artifacts

@@ -11,7 +11,7 @@ from tkhelper.error import raise_request_validation_error
 
 from .action import run_action
 from .plugin import get_plugin, run_plugin
-from .artifact_sanitizer import sanitize_artifacts_backend
+from .artifact_sanitizer import sanitize_artifacts_backend, sanitize_tool_output_data
 
 router = APIRouter()
 
@@ -128,13 +128,16 @@ async def run_tools(tool_inputs: List[ToolInput]) -> List[ToolOutput]:
                     pass
             # Apply backend-side sanitization as a safety layer
             artifacts = sanitize_artifacts_backend(artifacts)
+            # Also sanitize the data payload to keep LLM context small
+            raw_data = results[i].get("data")
+            sanitized_data = sanitize_tool_output_data(raw_data, artifacts) if raw_data else raw_data
             tool_outputs.append(
                 ToolOutput(
                     type=tool.type,
                     tool_id=tool.tool_id,
                     tool_call_id=tool.tool_call_id,
                     status=results[i].get("status"),
-                    data=results[i].get("data"),
+                    data=sanitized_data,
                     artifacts=artifacts,
                 )
             )
