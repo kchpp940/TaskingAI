@@ -38,12 +38,14 @@ async def lifespan(app: FastAPI):
         load_all_text_embedding_models,
         load_all_chat_completion_models,
     )
+    from app.database import init_database, close_database
     from app.routes.text_embedding.cache_backends import init_cache_backend
     from app.routes.text_embedding.embedding_cache import get_cache_backend_name
     from app.utils import set_i18n_checksum
 
     try:
         logger.info("fastapi app startup...")
+        await init_database()
         provider_ids = load_provider_data()
         load_model_schema_data(provider_ids)
         load_all_text_embedding_models(provider_ids)
@@ -55,6 +57,7 @@ async def lifespan(app: FastAPI):
 
     finally:
         logger.info("fastapi app shutdown...")
+        await close_database()
 
 
 def init_route_logger(filters: List[str]):
