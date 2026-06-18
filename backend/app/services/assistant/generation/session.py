@@ -4,8 +4,6 @@ from abc import ABC
 from typing import Dict, List, Optional, Tuple
 
 from app.models import (
-    MessageRole,
-    MessageContent,
     Model,
     Assistant,
     Chat,
@@ -17,14 +15,13 @@ from app.models import (
     ChatCompletionRole,
     RetrievalMethod,
 )
-
-from app.operators import message_ops
 from app.services.model import get_model
 from app.services.tool import run_tools, fetch_tools
 from app.services.inference.chat_completion import chat_completion, stream_chat_completion
 
 from .utils import *
 from .log import *
+from .result_builder import GenerationResultBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -38,62 +35,38 @@ MESSAGE_RESPONSE = 5
 
 class Session(ABC):
     def __init__(self, assistant: Assistant, chat: Optional[Chat], save_logs: bool):
-        # assistant
         self.assistant: Assistant = assistant
         self.chat: Optional[Chat] = chat
 
-        # tools
         self.tool_dict: Dict[str, Tool] = {}
         self.tool_use_count: Dict[str, List[int]] = {}
         self.max_tool_use_count = 5
 
-        # functions (input by stateless chat completion)
         self.function_names = []
 
-        # retrievals
         self.retrieval_tool_name = None
         self.retrieval_collection_ids = None
 
-        # model
         self.model: Model = None
 
-        # chat memory
         self.chat_memory_messages = None
 
-        # chat completion parameters
         self.system_prompt = None
         self.chat_completion_messages = None
         self.chat_completion_functions = []
 
-        # id
         self.session_id = generate_random_session_id()
 
-        # usage
         self.total_input_tokens = 0
         self.total_output_tokens = 0
 
-        # logs
         self.logs = []
         self.save_logs = save_logs
 
-        # trace collector
         self.trace_collector = TraceCollector()
         self.session_start_timestamp = current_timestamp_int_milliseconds()
 
-    async def create_assistant_message(self, content_text: str, logs: List[Dict] = None):
-        if not self.chat:
-            raise MessageGenerationInvalidRequestException("Chat is required to create a message.")
-        return await message_ops.create(
-            assistant_id=self.assistant.assistant_id,
-            chat_id=self.chat.chat_id,
-            create_dict={
-                "role": MessageRole.ASSISTANT.value,
-                "content": MessageContent(text=content_text),
-                "metadata": {},
-                "logs": logs,
-            },
-            check_max_count=False,
-        )
+        self.result_builder = GenerationResultBuilder(self)
 
     async def prepare(
         self,
@@ -103,16 +76,6 @@ class Session(ABC):
         chat_completion_messages: List[ChatCompletionAnyMessage] = None,
         chat_completion_input_functions: List[ChatCompletionFunction] = None,
     ):
-        """
-        Prepare the session for generating messages.
-        :param stream: whether to enable streaming
-        :param system_prompt_variables: system prompt variables
-        :param retrieval_log: whether to log retrieval
-        :param chat_completion_messages: chat completion messages
-        :param chat_completion_input_functions: chat completion input functions
-        :return: None
-        """
-
         if self.chat and chat_completion_messages is not None:
             raise ValueError("chat_completion_messages should be None when chat is not None.")
 
@@ -122,25 +85,21 @@ class Session(ABC):
         if chat_completion_input_functions is not None and chat_completion_messages is None:
             raise ValueError("chat_completion_input_functions should be None when chat_completion_messages is None.")
 
-        # check chat lock
         if self.chat and await self.chat.is_chat_locked():
             raise MessageGenerationInvalidRequestException(
                 f"Chat {self.chat.chat_id} is locked. Please try again later."
             )
 
-        # Get model
         try:
             self.model = await get_model(self.assistant.model_id)
         except Exception as e:
             raise MessageGenerationInvalidRequestException(f"Failed to load model {self.assistant.model_id}.")
 
-        # Check model streaming
         if not self.model.allow_streaming() and stream:
             raise MessageGenerationInvalidRequestException(
                 f"Assistant model {self.model.model_id} does not support streaming. "
             )
 
-        # Get chat memory with trace
         memory_event_id = generate_random_event_id()
         self.trace_collector.start(memory_event_id)
         if retrieval_log:
@@ -159,7 +118,6 @@ class Session(ABC):
             self.chat_memory_messages = await get_chat_memory_messages(self.chat)
             logger.debug(f"Chat memory: {self.chat_memory_messages}")
         else:
-            # use user input message as chat memory
             self.chat_memory_messages = [
                 message.model_dump()
                 for message in chat_completion_messages
@@ -180,7 +138,6 @@ class Session(ABC):
             self.logs.append(memory_log_output)
         self.trace_collector.clear(memory_event_id)
 
-        # Get tools
         if self.assistant.tools:
             try:
                 tools = await fetch_tools(self.assistant.tools)
@@ -196,7 +153,6 @@ class Session(ABC):
             )
             self.function_names = [function.name for function in chat_completion_input_functions]
 
-        # Get retrievals
         retrieval_doc = None
 
         if self.assistant.retrievals:
@@ -205,7 +161,6 @@ class Session(ABC):
             ]
 
             if self.assistant.retrieval_configs.method != RetrievalMethod.FUNCTION_CALL:
-                # build query text and query retrieval collections
                 retrieval_query_text = get_system_prompt_retrieval_query_text(
                     chat_memory_messages=self.chat_memory_messages,
                     method=self.assistant.retrieval_configs.method,
@@ -238,7 +193,6 @@ class Session(ABC):
                     self.trace_collector.clear(retrieval_event_id)
 
             else:
-                # make retrieval a function
                 retrieval_function = build_retrieval_function_dict(
                     existing_tool_names=list(self.tool_dict.keys()),
                     description=self.assistant.retrieval_configs.function_description,
@@ -246,7 +200,6 @@ class Session(ABC):
                 self.retrieval_tool_name = retrieval_function["name"]
                 self.chat_completion_functions.append(retrieval_function)
 
-        # Build system prompt with trace
         prompt_event_id = generate_random_event_id()
         self.trace_collector.start(prompt_event_id)
         if retrieval_log:
@@ -300,18 +253,9 @@ class Session(ABC):
         self.trace_collector.clear(prompt_event_id)
 
     async def use_tool(self, function_calls, round_index: int, log=False):
-        """
-        use tool and count the use times
-        :param function_calls: function call dict received from chat completion
-        :param round_index: current round index
-        :param log: whether to log the tool action call
-        :return: tool action call log dict if log is True else None
-        """
-
         logs = []
 
         for function_call in function_calls:
-            # use function_call_id as event_id
             function_call_id = function_call["id"]
             event_id = function_call_id
 
@@ -327,7 +271,6 @@ class Session(ABC):
                     raise MessageGenerationException(f"{tool_name} has been used for more than 5 rounds.")
             else:
                 if tool_name in self.tool_dict or tool_name == self.retrieval_tool_name:
-                    # ensure tool_name is in the tool dict, or it is the retrieval tool
                     self.tool_use_count[tool_name] = [round_index]
                 else:
                     raise MessageGenerationException(
@@ -337,7 +280,6 @@ class Session(ABC):
 
             if log:
                 if tool_name == self.retrieval_tool_name:
-                    # retrieval
                     query_text = arguments.get("query_text")
                     retrieval_input_log_dict = build_retrieval_input_log_dict(
                         session_id=self.session_id,
@@ -347,20 +289,11 @@ class Session(ABC):
                     )
                     logs.append(retrieval_input_log_dict)
 
-                # yield before running the tool
-
         if self.save_logs:
             self.logs.extend(logs)
         return logs
 
     async def run_tools(self, function_calls, log=False):
-        """
-        Run tool and optionally log the result.
-        :param function_calls: function call dict received from chat completion
-        :param log: whether to log the tool action result
-        :return: generator of tool action result log dicts if log is True else None
-        """
-        # Append function_calls message
         self.chat_completion_messages.append({"role": "assistant", "function_calls": function_calls})
 
         tool_inputs = []
@@ -371,7 +304,6 @@ class Session(ABC):
             arguments = function_call.get("arguments") or {}
 
             if tool_name == self.retrieval_tool_name:
-                # Retrieval
                 query_text = arguments.get("query_text")
                 if not query_text:
                     raise MessageGenerationException("Error occurred when retrieving related documents")
@@ -385,7 +317,6 @@ class Session(ABC):
                 logger.debug(f"Retrieval query: {query_text}")
                 logger.debug(f"Retrieval result: {str(retrieval_results)[:200]}...")
 
-                # Logging for retrieval
                 if log:
                     retrieval_output_log_dict = build_retrieval_output_log_dict(
                         session_id=self.session_id,
@@ -398,7 +329,6 @@ class Session(ABC):
                     yield retrieval_output_log_dict
                 self.trace_collector.clear(function_call_id)
 
-                # Append tool result message
                 self.chat_completion_messages.append(
                     {"role": "function", "content": retrieval_content, "id": function_call_id}
                 )
@@ -428,7 +358,6 @@ class Session(ABC):
             for tool_output in tool_outputs:
                 self.chat_completion_messages.append(tool_output.to_function_message())
 
-                # Logging for other tools
                 if log:
                     tool_action_result_log_dict = build_tool_output_log_dict(
                         session_id=self.session_id,
@@ -442,12 +371,6 @@ class Session(ABC):
                 self.trace_collector.clear(tool_output.tool_call_id)
 
     async def inference(self, event_id: Optional[str] = None) -> Tuple[Dict, List, Dict, Dict]:
-        """
-        Perform chat completion inference
-        :param event_id: optional event id for duration tracking
-        :return: a tuple of assistant message dict, function calls dict, usage dict, and completion data dict
-        """
-
         if event_id:
             self.trace_collector.start(event_id)
 
@@ -501,12 +424,6 @@ class Session(ABC):
                     yield MESSAGE_CHUNK, chunk
 
     def has_user_input_function_call(self, function_calls):
-        """
-        Check if the function calls contain user input function call
-        :param function_calls: function calls
-        :return: True if the function calls contain user input function call, else False
-        """
-
         if not function_calls:
             return False
         for function_call in function_calls:
@@ -515,12 +432,6 @@ class Session(ABC):
         return False
 
     def filter_user_function_calls(self, function_calls) -> Optional[List[Dict]]:
-        """
-        Filter out the function calls that are not user input functions
-        :param function_calls: the function calls in response assistant message
-        :return: list of function calls that are user input functions if any, else None
-        """
-
         results = [function_call for function_call in function_calls if function_call["name"] in self.function_names]
 
         if results:

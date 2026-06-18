@@ -1,14 +1,15 @@
-from fastapi import HTTPException
-from typing import Dict
-from tkhelper.error import raise_http_error, ErrorCode
-from tkhelper.schemas import BaseDataResponse
 import logging
+from typing import Dict
+
+from fastapi import HTTPException
+from tkhelper.error import ErrorCode, raise_http_error
 
 from app.models import Assistant, Chat
 
 from .session import Session
 from .utils import *
 from .log import *
+from .result_builder import MessageFinalizationHelper
 
 logger = logging.getLogger(__name__)
 
@@ -31,18 +32,10 @@ class StatefulNormalSession(Session):
             while True:
                 try:
                     chat_completion_event_id = generate_random_event_id()
-                    # append chat completion input log
-                    if self.save_logs:
-                        chat_completion_input_log_dict = build_chat_completion_input_log_dict(
-                            session_id=self.session_id,
-                            event_id=chat_completion_event_id,
-                            model=self.model,
-                            messages=self.chat_completion_messages,
-                            functions=self.chat_completion_functions,
-                        )
-                        self.logs.append(chat_completion_input_log_dict)
+                    self.result_builder.append_chat_completion_input_log(
+                        event_id=chat_completion_event_id, save=self.save_logs
+                    )
 
-                    # inference
                     (
                         chat_completion_assistant_message_dict,
                         chat_completion_function_calls_dict_list,
@@ -50,16 +43,12 @@ class StatefulNormalSession(Session):
                         _,
                     ) = await self.inference()
 
-                    # append chat completion output log
-                    if self.save_logs:
-                        chat_completion_output_log_dict = build_chat_completion_output_log_dict(
-                            session_id=self.session_id,
-                            event_id=chat_completion_event_id,
-                            model=self.model,
-                            message=chat_completion_assistant_message_dict,
-                            usage=usage_dict,
-                        )
-                        self.logs.append(chat_completion_output_log_dict)
+                    self.result_builder.append_chat_completion_output_log(
+                        event_id=chat_completion_event_id,
+                        assistant_message_dict=chat_completion_assistant_message_dict,
+                        usage_dict=usage_dict,
+                        save=self.save_logs,
+                    )
 
                 except HTTPException as e:
                     raise MessageGenerationException(f"Error occurred in chat completion inference. {e.detail}")
@@ -72,13 +61,11 @@ class StatefulNormalSession(Session):
                 if chat_completion_function_calls_dict_list:
                     function_calls_round_index += 1
                     try:
-                        await self.use_tool(
+                        await self.result_builder.process_tool_calls(
                             chat_completion_function_calls_dict_list,
                             round_index=function_calls_round_index,
                             log=self.save_logs,
                         )
-                        async for _ in self.run_tools(chat_completion_function_calls_dict_list):
-                            pass
                     except MessageGenerationException as e:
                         logger.error(f"MessageGenerationException occurred in using the tools: {e}")
                         raise e
@@ -89,11 +76,11 @@ class StatefulNormalSession(Session):
                 else:
                     break
 
-            message = await self.create_assistant_message(
+            return await MessageFinalizationHelper.build_stateful_normal_response(
+                session=self,
                 content_text=chat_completion_assistant_message_dict["content"],
                 logs=self.logs if self.save_logs else None,
             )
-            return BaseDataResponse(data=message.to_response_dict())
 
         except MessageGenerationInvalidRequestException as e:
             logger.error(f"StatefulNormalSession.generate: HTTPException error = {e}")

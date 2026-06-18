@@ -1,8 +1,9 @@
 import logging
 from typing import List, Optional, Dict
 import os
+import yaml
+import re
 from app.models import Provider
-from app.models.yaml_loader import load_yaml_file, load_yaml_raw, load_yaml_files_from_dir, PROVIDERS_ROOT, load_providers_dir
 from app.utils import checksum
 from app.utils.i18n import set_i18n, collect_i18n_values
 from app.error import raise_http_error, ErrorCode
@@ -24,104 +25,115 @@ __providers_cache: List[Dict] = []
 __provider_checksum: str = ""
 
 
-def _read_provider_yaml(provider_id: str) -> Optional[Dict]:
-    file_path = os.path.join(PROVIDERS_ROOT, provider_id, "resources/provider.yml")
-    return load_yaml_file(file_path)
-
-
-def _read_provider_yaml_raw(provider_id: str) -> Optional[str]:
-    file_path = os.path.join(PROVIDERS_ROOT, provider_id, "resources/provider.yml")
-    return load_yaml_raw(file_path)
-
-
-def _collect_provider_i18n_keys(provider_id: str) -> List[str]:
-    i18n_keys = []
-    provider_str = _read_provider_yaml_raw(provider_id)
-    if provider_str:
-        i18n_keys.extend(collect_i18n_values(provider_str))
-
-    model_schema_dir = os.path.join(PROVIDERS_ROOT, provider_id, "resources/models")
-    for file_path, _ in load_yaml_files_from_dir(model_schema_dir):
-        model_str = load_yaml_raw(file_path)
-        if model_str:
-            i18n_keys.extend(collect_i18n_values(model_str))
-
-    return i18n_keys
-
-
-def _load_provider_i18n(provider_id: str, i18n_keys: List[str]):
-    i18n_dir_path = os.path.join(PROVIDERS_ROOT, provider_id, "resources/i18n")
-    if not os.path.exists(i18n_dir_path):
-        return
-    for i18n_file in os.listdir(i18n_dir_path):
-        if i18n_file.endswith(".yml"):
-            lang = i18n_file.split(".")[0]
-            i18n_data = load_yaml_file(os.path.join(i18n_dir_path, i18n_file))
-            if i18n_data is None:
-                continue
-            for key in i18n_keys:
-                if key[5:] not in i18n_data:
-                    raise_http_error(
-                        ErrorCode.OBJECT_NOT_FOUND,
-                        f"{provider_id}'s i18n key {key[5:]} is missing in {i18n_file}",
-                    )
-            set_i18n(provider_id, lang, i18n_data)
-
-
-def _build_provider(provider_id: str) -> Optional[Provider]:
-    provider_dict = _read_provider_yaml(provider_id)
-    if provider_dict is None:
-        logger.debug("Skipping empty or missing provider.yml for provider: %s", provider_id)
-        return None
-
-    i18n_keys = _collect_provider_i18n_keys(provider_id)
-    _load_provider_i18n(provider_id, i18n_keys)
-
-    return Provider.build(provider_dict)
-
-
-def _should_skip_provider(provider_id: str) -> bool:
-    if CONFIG.ALLOWED_PROVIDERS and provider_id not in CONFIG.ALLOWED_PROVIDERS:
-        return True
-    if provider_id == "debug" and CONFIG.PROD:
-        return True
-    return False
-
-
 def load_provider_data() -> List[str]:
+    """
+    Load provider data from YAML files.
+    :return: a list of provider ids.
+    """
+
     global __providers, __provider_dict, __providers_cache, __provider_checksum
 
-    all_provider_ids = load_providers_dir()
+    providers_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "../../providers")
+    # List all entries in the providers directory that are directories
+    provider_ids = [i for i in os.listdir(providers_path) if os.path.isdir(os.path.join(providers_path, i))]
+    pattern = re.compile(r"^[a-z0-9][a-z0-9_]*$")
+    provider_ids = [i for i in provider_ids if pattern.match(i) and not i.startswith("template")]
+    # todo: check provider_ids in a-z, 0-9, _
 
-    for provider_id in all_provider_ids:
-        if _should_skip_provider(provider_id):
+    # Iterate through each file in the directory
+    for provider_id in provider_ids:
+        if CONFIG.ALLOWED_PROVIDERS and provider_id not in CONFIG.ALLOWED_PROVIDERS:
             continue
-        logger.info("Loading provider data from providers/%s/resources/provider.yml", provider_id)
-        try:
-            provider = _build_provider(provider_id)
-            if provider is not None:
+        if provider_id == "debug" and CONFIG.PROD:
+            continue
+        file_path = os.path.join(providers_path, provider_id, "resources/provider.yml")
+        logger.info(f"Loading provider data from providers/{provider_id}/resources/provider.yml")
+        i18n_dir_path = os.path.join(providers_path, provider_id, "resources/i18n")
+        # Check if file is not empty
+        if os.path.getsize(file_path) > 0:
+            try:
+
+                # Open and read the file
+                with open(file_path, "r") as file:
+                    provider_str = file.read()
+                    provider_dict = yaml.safe_load(provider_str)  # Use yaml.safe_load to load YAML data
+
+                # read all the necessary i18n keys
+                i18n_keys = collect_i18n_values(provider_str)
+                model_schema_dir = os.path.join(providers_path, provider_id, "resources/models")
+                if os.path.exists(model_schema_dir):
+                    for file_name in os.listdir(model_schema_dir):
+                        if not file_name.endswith(".yml"):
+                            continue
+                        file_path = os.path.join(model_schema_dir, file_name)
+                        if os.path.getsize(file_path) > 0:
+                            with open(file_path, "r") as file:
+                                model_str = file.read()
+                                i18n_keys.extend(collect_i18n_values(model_str))
+
+                # read i18n files: en.yml, zh.yml, fr.yml, etc.
+                for i18n_file in os.listdir(i18n_dir_path):
+                    if i18n_file.endswith(".yml"):
+                        lang = i18n_file.split(".")[0]
+                        with open(os.path.join(i18n_dir_path, i18n_file), "r") as file:
+                            i18n_data = yaml.safe_load(file)
+                            # check if all keys are present
+                            for key in i18n_keys:
+                                if key[5:] not in i18n_data:
+                                    raise_http_error(
+                                        ErrorCode.OBJECT_NOT_FOUND,
+                                        f"{provider_id}'s i18n key {key[5:]} is missing in {i18n_file}",
+                                    )
+                            set_i18n(provider_id, lang, i18n_data)
+
+                # Process the data
+                provider = Provider.build(
+                    provider_dict,
+                )
                 __provider_dict[provider_id] = provider
                 __providers.append(provider)
-        except Exception as e:
-            logger.error("Error loading provider %s: %s", provider_id, e)
+
+            except yaml.YAMLError as e:
+                logger.error(f"Error loading YAML from file {file_path}: {e}")
+        else:
+            logger.debug(f"Skipping empty file: {file_path}")
 
     __providers.sort(key=lambda x: x.provider_id)
     __providers_cache = [provider.to_dict(lang=None) for provider in __providers]
     __provider_checksum = checksum(__providers_cache)
-    return all_provider_ids
+    return provider_ids
 
 
 def list_providers() -> List[Provider]:
+    """
+    List model models.
+    :return: a list of model schemas.
+    """
+    # todo: add filter
     return __providers
 
 
 def get_provider(provider_id: str) -> Optional[Provider]:
+    """
+    Get a providers by provider_id.
+
+    :param provider_id: the providers id.
+    :return: the providers or None if not found.
+    """
     return __provider_dict.get(provider_id)
 
 
 def get_provider_cache() -> List[Dict]:
+    """
+    Get the providers cache.
+    :return: the providers cache.
+    """
     return __providers_cache
 
 
 def get_provider_checksum() -> str:
+    """
+    Get the provider checksum.
+    :return: the provider checksum.
+    """
     return __provider_checksum

@@ -3,25 +3,17 @@ import json
 from typing import Dict
 
 from fastapi import HTTPException
-from tkhelper.utils import SSE_DONE_MSG
 from tkhelper.error import ErrorCode
 
 from app.models import Assistant, Chat
 from .session import *
 from .log import *
 from .utils import *
+from .result_builder import MessageFinalizationHelper
 
 import logging
 
 logger = logging.getLogger(__name__)
-
-
-def error_message(code, message: str):
-    return {
-        "object": "Error",
-        "code": code,
-        "message": message,
-    }
 
 
 class StatefulStreamSession(Session):
@@ -51,18 +43,12 @@ class StatefulStreamSession(Session):
 
                 try:
                     chat_completion_event_id = generate_random_event_id()
-                    if self.debug or self.save_logs:
-                        chat_completion_input_log_dict = build_chat_completion_input_log_dict(
-                            session_id=self.session_id,
-                            event_id=chat_completion_event_id,
-                            model=self.model,
-                            messages=self.chat_completion_messages,
-                            functions=self.chat_completion_functions,
-                        )
-                        if self.save_logs:
-                            self.logs.append(chat_completion_input_log_dict)
-                        if self.debug:
-                            yield f"data: {json.dumps(chat_completion_input_log_dict)}\n\n"
+
+                    input_log = self.result_builder.append_chat_completion_input_log(
+                        event_id=chat_completion_event_id, save=self.save_logs
+                    )
+                    if self.debug:
+                        yield f"data: {json.dumps(input_log)}\n\n"
 
                     if self.stream:
                         usage_dict = None
@@ -91,18 +77,14 @@ class StatefulStreamSession(Session):
                             _,
                         ) = await self.inference()
 
-                    if self.debug or self.save_logs:
-                        chat_completion_output_log_dict = build_chat_completion_output_log_dict(
-                            session_id=self.session_id,
-                            event_id=chat_completion_event_id,
-                            model=self.model,
-                            message=chat_completion_assistant_message_dict,
-                            usage=usage_dict,
-                        )
-                        if self.save_logs:
-                            self.logs.append(chat_completion_output_log_dict)
-                        if self.debug:
-                            yield f"data: {json.dumps(chat_completion_output_log_dict)}\n\n"
+                    output_log = self.result_builder.append_chat_completion_output_log(
+                        event_id=chat_completion_event_id,
+                        assistant_message_dict=chat_completion_assistant_message_dict,
+                        usage_dict=usage_dict,
+                        save=self.save_logs,
+                    )
+                    if self.debug:
+                        yield f"data: {json.dumps(output_log)}\n\n"
 
                 except MessageGenerationException as e:
                     raise e
@@ -117,28 +99,19 @@ class StatefulStreamSession(Session):
                     try:
                         logger.debug(f"FUNCTION_CALLS: tool_call = {chat_completion_function_calls_dict_list}")
 
-                        # use and run tool. When debug is True, log the tool action call and result
-                        tool_action_call_logs = await self.use_tool(
-                            function_calls=chat_completion_function_calls_dict_list,
-                            round_index=function_calls_round_index,
-                            log=self.debug or self.save_logs,
-                        )
                         if self.debug:
-                            for tool_action_call_log_dict in tool_action_call_logs:
-                                logger.debug(f"tool_action_call_log_dict = {tool_action_call_log_dict}")
-                                yield f"data: {json.dumps(tool_action_call_log_dict)}\n\n"
-
-                        # run tools
-
-                        if self.debug:
-                            async for tool_action_result_log_dict in self.run_tools(
-                                function_calls=chat_completion_function_calls_dict_list, log=True
+                            async for sse_event in self.result_builder.process_tool_calls_with_debug(
+                                function_calls=chat_completion_function_calls_dict_list,
+                                round_index=function_calls_round_index,
+                                log=self.debug or self.save_logs,
                             ):
-                                logger.debug(f"tool_action_result_log_dict = {tool_action_result_log_dict}")
-                                yield f"data: {json.dumps(tool_action_result_log_dict)}\n\n"
+                                yield sse_event
                         else:
-                            async for _ in self.run_tools(chat_completion_function_calls_dict_list):
-                                pass
+                            await self.result_builder.process_tool_calls(
+                                function_calls=chat_completion_function_calls_dict_list,
+                                round_index=function_calls_round_index,
+                                log=self.save_logs,
+                            )
 
                     except MessageGenerationException as e:
                         logger.error(f"MessageGenerationException occurred in using the tools: {e}")
@@ -154,33 +127,27 @@ class StatefulStreamSession(Session):
             if not chat_completion_assistant_message_dict:
                 raise MessageGenerationException("Assistant message not generated.")
 
-            # raise MessageGenerationException("Manually raise error to test")
-            message = await self.create_assistant_message(
+            async for event in MessageFinalizationHelper.build_stateful_stream_events(
+                session=self,
                 content_text=chat_completion_assistant_message_dict["content"],
                 logs=self.logs if self.save_logs else None,
-            )
-            message_dict = message.to_response_dict()
-            yield f"data: {json.dumps(message_dict)}\n\n"
-            yield SSE_DONE_MSG
+            ):
+                yield event
 
         except MessageGenerationInvalidRequestException as e:
-            err_dict = error_message(code=ErrorCode.INVALID_REQUEST, message=str(e))
-            yield f"data: {json.dumps(err_dict)}\n\n"
-            yield SSE_DONE_MSG
+            async for event in MessageFinalizationHelper.build_sse_error(ErrorCode.INVALID_REQUEST, str(e)):
+                yield event
 
         except MessageGenerationException as e:
-            err_dict = error_message(code=ErrorCode.GENERATION_ERROR, message=str(e))
-            yield f"data: {json.dumps(err_dict)}\n\n"
-            yield SSE_DONE_MSG
+            async for event in MessageFinalizationHelper.build_sse_error(ErrorCode.GENERATION_ERROR, str(e)):
+                yield event
 
         except Exception as e:
-            err_dict = error_message(
-                code=ErrorCode.UNKNOWN_ERROR,
-                message="Assistant message not generated due to an unknown error.",
-            )
             logger.error(f"stream_generate: unknown error occurred in stream_generate {e}")
-            yield f"data: {json.dumps(err_dict)}\n\n"
-            yield SSE_DONE_MSG
+            async for event in MessageFinalizationHelper.build_sse_error(
+                ErrorCode.UNKNOWN_ERROR, "Assistant message not generated due to an unknown error."
+            ):
+                yield event
 
         finally:
             await self.chat.unlock()

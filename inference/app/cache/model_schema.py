@@ -1,8 +1,8 @@
 import logging
 import os
-from typing import List, Dict, Tuple
-from app.models import ModelSchema, apply_capability_normalization
-from app.models.yaml_loader import load_yaml_files_from_dir, PROVIDERS_ROOT
+import yaml
+from typing import List, Dict
+from app.models import ModelSchema
 from config import CONFIG
 from app.utils import checksum
 
@@ -22,93 +22,52 @@ __all__ = [
 ]
 
 
-def _read_model_schema_yamls(provider_id: str) -> List[Dict]:
-    model_schema_dir = os.path.join(PROVIDERS_ROOT, provider_id, "resources/models")
-    raw_entries = load_yaml_files_from_dir(model_schema_dir)
-    results = []
-    for file_path, data in raw_entries:
-        data["provider_id"] = provider_id
-        results.append(data)
-    return results
+def load_model_schema_data(provider_ids: List[str]) -> None:
+    """
+    Load model schema data for given provider IDs.
+    """
 
+    model_schemas = []
 
-def _parse_model_schemas(raw_entries: List[Dict]) -> Tuple[List[ModelSchema], List[Dict]]:
-    model_schema_ids = {}
-    model_schemas: List[ModelSchema] = []
-    ordered_raw: List[Dict] = []
-    for data in raw_entries:
-        model_schema_id = data.get("model_schema_id")
-        provider_id = data.get("provider_id", "unknown")
-        if model_schema_id in model_schema_ids:
-            raise ValueError(f"Duplicate model_schema_id {model_schema_id} found in provider {provider_id}")
-        model_schema_ids[model_schema_id] = True
-        try:
-            model_schema = ModelSchema.build(data)
-            model_schemas.append(model_schema)
-            ordered_raw.append(data)
-        except Exception as e:
-            logger.error("Error building ModelSchema from %s: %s", data.get("model_schema_id", "unknown"), e)
-    return model_schemas, ordered_raw
+    providers_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "../../providers")
+    for provider_id in provider_ids:
+        model_schema_dir = os.path.join(providers_path, provider_id, "resources/models")
+        if not os.path.exists(model_schema_dir):
+            continue
 
+        model_schema_ids = {}
 
-def _normalize_capabilities(model_schemas: List[ModelSchema], raw_entries: List[Dict]) -> None:
-    for model_schema, raw in zip(model_schemas, raw_entries):
-        properties_raw = raw.get("properties", {})
-        apply_capability_normalization(model_schema, properties_raw)
-        if model_schema.warnings:
-            for warning in model_schema.warnings:
-                logger.info(
-                    "[%s] %s: %s",
-                    warning.code,
-                    model_schema.model_schema_id,
-                    warning.message,
-                )
+        for file_name in os.listdir(model_schema_dir):
+            if not file_name.endswith(".yml"):
+                continue
+            file_path = os.path.join(model_schema_dir, file_name)
+            if os.path.getsize(file_path) > 0:
+                try:
+                    with open(file_path, "r") as file:
+                        data = yaml.safe_load(file)
 
+                    model_schema_id = data.get("model_schema_id")
+                    if model_schema_id in model_schema_ids:
+                        raise ValueError(f"Duplicate model_schema_id {model_schema_id} found in provider {provider_id}")
+                    model_schema_ids[model_schema_id] = True
 
-def _filter_and_sort(model_schemas: List[ModelSchema], raw_entries: List[Dict], allowed_providers: List[str]):
-    if allowed_providers:
-        filtered_pairs = [
-            (schema, raw)
-            for schema, raw in zip(model_schemas, raw_entries)
-            if schema.provider_id in allowed_providers
-        ]
-        model_schemas = [p[0] for p in filtered_pairs]
-        raw_entries = [p[1] for p in filtered_pairs]
-    sorted_pairs = sorted(zip(model_schemas, raw_entries), key=lambda pair: pair[0].model_schema_id)
-    return [p[0] for p in sorted_pairs], [p[1] for p in sorted_pairs]
+                    data["provider_id"] = provider_id
+                    model_schema = ModelSchema.build(data)
+                    model_schemas.append(model_schema)
 
+                except yaml.YAMLError as e:
+                    logger.error(f"Error loading YAML from file {file_path}: {e}")
 
-def _build_indices(model_schemas: List[ModelSchema]):
+    model_schemas = [
+        model_schema
+        for model_schema in model_schemas
+        if not CONFIG.ALLOWED_PROVIDERS or model_schema.provider_id in CONFIG.ALLOWED_PROVIDERS
+    ]
+    model_schemas.sort(key=lambda x: x.model_schema_id)
     model_schema_dict = {model_schema.model_schema_id: model_schema for model_schema in model_schemas}
     provider_model_schema_dict = {
         f"{model_schema.provider_id}:{model_schema.provider_model_id}": model_schema for model_schema in model_schemas
     }
-    return model_schema_dict, provider_model_schema_dict
-
-
-def _write_cache(model_schemas: List[ModelSchema]):
-    cache = [model_schema.to_dict(lang=None) for model_schema in model_schemas]
-    return cache, checksum(cache)
-
-
-def _get_debug_model_schema_cache() -> List[Dict]:
-    return [model_schema.to_dict(lang=None, include_internal=True) for model_schema in _model_schemas]
-
-
-def load_model_schema_data(provider_ids: List[str]) -> None:
-    all_raw_entries = []
-    for provider_id in provider_ids:
-        all_raw_entries.extend(_read_model_schema_yamls(provider_id))
-
-    model_schemas, ordered_raw = _parse_model_schemas(all_raw_entries)
-
-    model_schemas, ordered_raw = _filter_and_sort(model_schemas, ordered_raw, CONFIG.ALLOWED_PROVIDERS)
-
-    _normalize_capabilities(model_schemas, ordered_raw)
-
-    model_schema_dict, provider_model_schema_dict = _build_indices(model_schemas)
-
-    cache, schema_checksum = _write_cache(model_schemas)
 
     global _model_schemas, _model_schema_dict, _provider_model_schema_dict, __model_schema_cache, __model_schema_checksum
     _model_schemas, _model_schema_dict, _provider_model_schema_dict = (
@@ -116,9 +75,9 @@ def load_model_schema_data(provider_ids: List[str]) -> None:
         model_schema_dict,
         provider_model_schema_dict,
     )
-    __model_schema_cache = cache
-    __model_schema_checksum = schema_checksum
-    logger.info("Loaded model schemas for providers: %s", provider_ids)
+    __model_schema_cache = [model_schema.to_dict(lang=None) for model_schema in model_schemas]
+    __model_schema_checksum = checksum(__model_schema_cache)
+    logger.info(f"Loaded model schemas for providers: {provider_ids}")
 
 
 def list_model_schemas(provider_id: str, type: str) -> List[ModelSchema]:
@@ -144,5 +103,3 @@ def get_model_schema_cache() -> List[Dict]:
 
 def get_model_schema_checksum() -> str:
     return __model_schema_checksum
-
-
