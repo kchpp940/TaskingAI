@@ -29,9 +29,42 @@ class MessageGenerateRequest(BaseModel):
 
 
 class MessageGenerateResponse(BaseModel):
-    status: str = Field("success")
-    data: Message = Field(...)
+    status: str = Field("success", description="Response status, always 'success'.")
+    data: Message = Field(..., description="The generated assistant message object.")
     trace: Optional[List[Dict[str, Any]]] = Field(
         None,
-        description="Structured trace events for debugging the generation process. Only present when debug=True and stream=False.",
+        description="Structured trace events for debugging the generation process. "
+                    "Only present when debug=True and stream=False. "
+                    "Each event contains event type, status, duration, input summary, and error info if any.",
     )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "status": "success",
+                    "data": {
+                        "object": "Message",
+                        "message_id": "msg_xxx",
+                        "assistant_id": "ast_xxx",
+                        "chat_id": "chat_xxx",
+                        "role": "assistant",
+                        "content": {"text": "Hello!"}
+                    },
+                    "trace": [
+                        {
+                            "object": "MessageGenerationLog",
+                            "session_id": "sess_xxx",
+                            "event": "memory",
+                            "event_id": "ev_xxx",
+                            "event_step": "load",
+                            "timestamp": 1718700000000,
+                            "status": "success",
+                            "duration_ms": 15,
+                            "input_summary": "Load 5 memory messages"
+                        }
+                    ]
+                }
+            ]
+        }
+    }
