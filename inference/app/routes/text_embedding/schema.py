@@ -96,6 +96,33 @@ class TextEmbeddingRequest(BaseModel):
     )
 
 
+class TextEmbeddingMetadata(BaseModel):
+    cache_hits: int = Field(
+        0,
+        description="Number of input texts served from the TTL cache.",
+    )
+    total_inputs: int = Field(
+        0,
+        description="Total number of input texts in the request.",
+    )
+    unique_keys: int = Field(
+        0,
+        description="Number of unique cache keys after intra-request deduplication by full semantic identity.",
+    )
+    provider_calls: int = Field(
+        0,
+        description="Number of provider API calls made.",
+    )
+    batch_count: int = Field(
+        0,
+        description="Number of batches sent to the provider.",
+    )
+    elapsed_ms: float = Field(
+        0.0,
+        description="Total embedding processing time in milliseconds.",
+    )
+
+
 class TextEmbeddingResponse(BaseModel):
     status: str = Field(
         "success",
@@ -136,4 +163,9 @@ class TextEmbeddingResponse(BaseModel):
     fallback_index: Optional[int] = Field(
         None,
         description="The index of the fallback model used.",
+    )
+
+    metadata: Optional[TextEmbeddingMetadata] = Field(
+        None,
+        description="Embedding processing metadata including cache and batching stats.",
     )
