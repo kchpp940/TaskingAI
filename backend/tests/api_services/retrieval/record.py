@@ -43,3 +43,11 @@ async def delete_record(collection_id: str, record_id: str):
         request_url = f"{COLLECTION_BASE_URL}/{collection_id}/records/{record_id}"
         response = await session.delete(request_url)
         return ResponseWrapper(response.status, await response.json())
+
+
+async def retry_record(collection_id: str, record_id: str):
+    headers = get_headers(CONFIG.Authentication)
+    async with aiohttp.ClientSession(headers=headers) as session:
+        request_url = f"{COLLECTION_BASE_URL}/{collection_id}/records/{record_id}/retry"
+        response = await session.post(request_url)
+        return ResponseWrapper(response.status, await response.json())

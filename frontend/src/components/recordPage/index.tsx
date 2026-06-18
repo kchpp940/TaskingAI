@@ -20,7 +20,7 @@ import { toast } from 'react-toastify';
 import tooltipTitle from '../../contents/tooltipTitle'
 import DeleteModal from '../deleteModal/index.tsx';
 import CopyOutlined from '../../assets/img/copyIcon.svg?react'
-import { getRecordsList, createRecord, deleteRecord, updateRecord, uploadFile } from '../../axios/record.ts'
+import { getRecordsList, createRecord, deleteRecord, updateRecord, retryRecord, uploadFile } from '../../axios/record.ts'
 import { formatTimestamp } from '@/utils/util'
 import DeleteIcon from '../../assets/img/deleteIcon.svg?react'
 import CloseIcon from '../../assets/img/x-close.svg?react'
@@ -92,10 +92,41 @@ function RecordPage({ collectionId,fetChData }: { collectionId: string,fetChData
             title: `${t('projectRetrievalColumnStatus')}`,
             dataIndex: 'status',
             key: 'status',
-            width: 180,
-            render: (text: string) => (
-                <div className={text}>
-                    {text}
+            width: 220,
+            render: (text: string, record: any) => (
+                <div className={styles.statusContainer}>
+                    <div className={`${styles.statusBadge} ${styles[text]}`}>
+                        {text === 'pending' && '⏳ Pending'}
+                        {text === 'processing' && `⚙️ ${record.processing_stage || 'Processing'}`}
+                        {text === 'succeeded' && '✅ Succeeded'}
+                        {text === 'failed' && '❌ Failed'}
+                        {text === 'ready' && '✅ Ready'}
+                        {text === 'error' && '❌ Error'}
+                        {text === 'creating' && '⏳ Creating'}
+                        {text === 'deleting' && '🗑️ Deleting'}
+                    </div>
+                    {text === 'failed' && record.error_message && (
+                        <Tooltip title={record.error_message} placement="bottom">
+                            <div className={styles.errorMessage}>
+                                {record.error_message.length > 30 
+                                    ? record.error_message.substring(0, 30) + '...' 
+                                    : record.error_message}
+                            </div>
+                        </Tooltip>
+                    )}
+                    {text === 'failed' && (
+                        <Button
+                            type="link"
+                            size="small"
+                            className={styles.retryButton}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                handleRetry(record);
+                            }}
+                        >
+                            🔄 Retry
+                        </Button>
+                    )}
                 </div>
             )
         },
@@ -316,6 +347,21 @@ function RecordPage({ collectionId,fetChData }: { collectionId: string,fetChData
             setDeleteId(record.record_id)
         } catch (e) {
             console.log(e)
+        }
+    }
+    const handleRetry = async (record: any) => {
+        try {
+            await retryRecord(collectionId, record.record_id);
+            toast.success('Retry initiated successfully');
+            const params = {
+                limit: limit || 20,
+            };
+            await fetchData(collectionId, params);
+            fetChData();
+        } catch (error) {
+            const apiError = error as ApiErrorResponse;
+            const message = apiError.response?.data?.error?.message || 'Failed to retry';
+            toast.error(message);
         }
     }
     const onDeleteCancel = () => {

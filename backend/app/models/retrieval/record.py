@@ -12,6 +12,7 @@ from .collection import Collection
 
 __all__ = [
     "RecordType",
+    "ImportStage",
     "Record",
 ]
 
@@ -20,6 +21,27 @@ class RecordType(str, Enum):
     TEXT = "text"
     FILE = "file"
     WEB = "web"
+
+
+class ImportStage(str, Enum):
+    PENDING = "pending"
+    CONTENT_LOADING = "content_loading"
+    CHUNKING = "chunking"
+    EMBEDDING = "embedding"
+    WRITING_CHUNKS = "writing_chunks"
+    COMPLETED = "completed"
+
+    @property
+    def order(self) -> int:
+        order_map = {
+            ImportStage.PENDING: 0,
+            ImportStage.CONTENT_LOADING: 1,
+            ImportStage.CHUNKING: 2,
+            ImportStage.EMBEDDING: 3,
+            ImportStage.WRITING_CHUNKS: 4,
+            ImportStage.COMPLETED: 5,
+        }
+        return order_map[self]
 
 
 class Record(ModelEntity):
@@ -32,6 +54,20 @@ class Record(ModelEntity):
     type: RecordType = Field(..., description="The type of the record", examples=["text"])
     content: str = Field(..., description="The content of the record")
     metadata: Dict = metadata_field()
+    processing_stage: Optional[ImportStage] = Field(
+        None,
+        description="The current processing stage of the record import",
+        examples=["content_loading"],
+    )
+    error_message: Optional[str] = Field(
+        None,
+        description="The error message if the record import failed",
+        examples=["Failed to load content from file"],
+    )
+    import_params: Optional[Dict] = Field(
+        None,
+        description="The original import parameters for retry",
+    )
     updated_timestamp: int = updated_timestamp_field()
     created_timestamp: int = created_timestamp_field()
 
@@ -60,6 +96,9 @@ class Record(ModelEntity):
             type=RecordType(row["type"]),
             content=row["content"],
             metadata=load_json_attr(row, "metadata", {}),
+            processing_stage=ImportStage(row["processing_stage"]) if row.get("processing_stage") else None,
+            error_message=row.get("error_message"),
+            import_params=load_json_attr(row, "import_params", None),
             updated_timestamp=row["updated_timestamp"],
             created_timestamp=row["created_timestamp"],
         )
@@ -112,4 +151,4 @@ class Record(ModelEntity):
 
     @staticmethod
     def fields_exclude_in_response():
-        return []
+        return ["import_params"]

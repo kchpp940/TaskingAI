@@ -157,9 +157,6 @@ function Playground() {
     const [topk, setTopk] = useState(3)
     const [maxTokens, setMaxToken] = useState(4096)
     const [pluginModalOpen, setPluginModalOpen] = useState(false)
-    const [tracePanelOpen, setTracePanelOpen] = useState(false)
-    const [traceEvents, setTraceEvents] = useState<any[]>([])
-    const [selectedTraceEvent, setSelectedTraceEvent] = useState<any>(null)
 
     const handleCopy = (text: string) => {
         const clipboard = new ClipboardJS('.icon-copy', {
@@ -839,7 +836,7 @@ function Playground() {
             debug: debug
         }
         let source;
-        if (stream) {
+        if (stream || debug) {
             source = new SSE(`${origin}/${project_base_url}/assistants/${id}/chats/${chatId}/generate`, {
                 headers: {
                     "Content-Type": "application/json",
@@ -857,10 +854,10 @@ function Playground() {
             })
         }
 
-        if (!stream) {
+        if (!stream && !debug) {
             try {
                 const res = await generateMessage(id, chatId, params)
-                const { data, trace } = res
+                const { data } = res
                 setContentTalk(prevValues => [...prevValues, {
                     role: 'Assistant',
                     content: {
@@ -878,11 +875,6 @@ function Playground() {
                     userId: false,
                     flag: true
                 }]))
-                if (debug && trace) {
-                    setDebugArray1(trace)
-                    localStorage.setItem('inputResult', JSON.stringify(trace))
-                    setTraceEvents(trace)
-                }
             } catch (error) {
                 const apiError = error as ApiErrorResponse;
                 const errorMessage: string = apiError.response.data.error.message;
@@ -910,9 +902,30 @@ function Playground() {
             }
 
             );
+        } else if (!stream && debug) {
+            let arr1: any = []
+            source?.addEventListener("message", (e: any) => {
+                if (e.data === '[DONE]') {
+                    setGenerateButtonLoading(false)
+                    setSendGenerateLoading(false)
+                    return
+                }
+                const data = JSON.parse(e.data)
+                if (data.object === 'MessageGenerationLog') {
+                    setDebugArray1(prevValues => {
+                        const updatedValues = [...prevValues, data];
+                        localStorage.setItem('inputResult', JSON.stringify(updatedValues));
+                        return updatedValues;
+                    });
+                }
+                arr1.push(data)
+                const binedArr = [...contentTalk, combineObjects(data, arr1)]
+                setContentTalk(binedArr)
+                localStorage.setItem('contentTalk', JSON.stringify(binedArr))
+
+            })
         } else {
             let arr1: any = []
-            setTraceEvents([])
             source?.addEventListener("message", (e: any) => {
                 if (e.data === '[DONE]') {
                     setGenerateButtonLoading(false)
@@ -927,7 +940,6 @@ function Playground() {
                         localStorage.setItem('outputResult', JSON.stringify(updatedValues));
                         return updatedValues;
                     });
-                    setTraceEvents(prev => [...prev, data])
                 }
                 arr1.push(data)
                 const binedArr = [...contentTalk, combineObjects(data, arr1)]
@@ -1469,19 +1481,8 @@ function Playground() {
                                 {listChats.length > 0 && <CopyOutlined className='icon-copy' onClick={() => handleCopy(chatId)} />}
                             </div>
 
-                            {listChats.length > 0 && <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                {traceEvents.length > 0 && (
-                                    <Button
-                                        onClick={() => setTracePanelOpen(true)}
-                                        className='cancel-button'
-                                    >
-                                        <EyeOutlined style={{ marginRight: '4px' }} />
-                                        Trace ({traceEvents.length})
-                                    </Button>
-                                )}
-                                <div className={styles['header-right']} onClick={handleDeleteChat}>
-                                    <Button icon={<DeleteIcon />} className='cancel-button'>{t('projectPlaygroundDeleteChat')}</Button>
-                                </div>
+                            {listChats.length > 0 && <div className={styles['header-right']} onClick={handleDeleteChat}>
+                                <Button icon={<DeleteIcon />} className='cancel-button'>{t('projectPlaygroundDeleteChat')}</Button>
                             </div>}
                         </div>
                         {!chatId && <div className={styles['content-center']}>
@@ -1694,85 +1695,6 @@ function Playground() {
             </Drawer>
             <CreatePlugin handleConfirmRequest={handleConfirmRequest} open={pluginModalOpen} handleCloseModal={handleClosePluginModal}></CreatePlugin>
             <DeleteModal title={t('projectPlaygroundDeleteChatUpper')} projectName={chatId} open={OpenDeleteModal} describe={`${t('deleteItem')} ${t('projectPlaygroundChatLow')} ${chatId}`} onDeleteCancel={onDeleteCancel} onDeleteConfirm={onDeleteConfirm}></DeleteModal>
-            <Drawer
-                closeIcon={<img src={closeIcon} alt="closeIcon" className='img-icon-close' />}
-                className={styles['trace-drawer']}
-                width={800}
-                onClose={() => setTracePanelOpen(false)}
-                title="Generation Trace"
-                placement="right"
-                open={tracePanelOpen}
-                size='large'
-            >
-                <div className={styles['trace-container']}>
-                    <div className={styles['trace-header']}>
-                        <div className={styles['trace-summary']}>
-                            Total Events: {traceEvents.length}
-                        </div>
-                    </div>
-                    <div className={styles['trace-list']}>
-                        {traceEvents.sort((a, b) => a.timestamp - b.timestamp).map((event, index) => {
-                            const eventLabel = event.event.split('_').map((word: string) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
-                            const stepLabel = event.event_step ? event.event_step.charAt(0).toUpperCase() + event.event_step.slice(1) : '';
-                            const statusColor = event.status === 'error' ? '#ec1943' : event.status === 'success' ? '#099250' : event.status === 'start' ? '#ffbb58' : '#777';
-                            const statusText = event.status || 'info';
-                            return (
-                                <div
-                                    key={index}
-                                    className={`${styles['trace-item']} ${selectedTraceEvent?.event_id === event.event_id && selectedTraceEvent?.event_step === event.event_step ? styles['trace-item-active'] : ''}`}
-                                    onClick={() => setSelectedTraceEvent(event)}
-                                >
-                                    <div className={styles['trace-item-left']}>
-                                        <div className={styles['trace-dot']} style={{ backgroundColor: statusColor }} />
-                                        <div className={styles['trace-line']} />
-                                    </div>
-                                    <div className={styles['trace-item-content']}>
-                                        <div className={styles['trace-item-header']}>
-                                            <span className={styles['trace-event-name']}>
-                                                {eventLabel} {stepLabel && `· ${stepLabel}`}
-                                            </span>
-                                            <span className={styles['trace-status']} style={{ color: statusColor }}>
-                                                {statusText}
-                                            </span>
-                                        </div>
-                                        {event.input_summary && (
-                                            <div className={styles['trace-summary-text']}>
-                                                {event.input_summary}
-                                            </div>
-                                        )}
-                                        <div className={styles['trace-item-meta']}>
-                                            <span>{new Date(event.timestamp).toLocaleTimeString()}</span>
-                                            {event.duration_ms !== undefined && event.duration_ms !== null && (
-                                                <span>· {event.duration_ms}ms</span>
-                                            )}
-                                            {event.event_id && (
-                                                <span className={styles['trace-event-id']}>· {event.event_id.slice(0, 8)}...</span>
-                                            )}
-                                        </div>
-                                        {selectedTraceEvent?.event_id === event.event_id && selectedTraceEvent?.event_step === event.event_step && (
-                                            <div className={styles['trace-detail']}>
-                                                <div className={styles['trace-detail-header']}>
-                                                    <span>Event Details</span>
-                                                    <CopyOutlined
-                                                        className='icon-copy'
-                                                        onClick={(e: any) => {
-                                                            e.stopPropagation();
-                                                            handleCopy(JSON.stringify(event, null, 2));
-                                                        }}
-                                                    />
-                                                </div>
-                                                <pre className={styles['trace-detail-json']}>
-                                                    {JSON.stringify(event, null, 2)}
-                                                </pre>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                </div>
-            </Drawer>
         </>
     );
 }

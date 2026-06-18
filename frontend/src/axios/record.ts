@@ -32,6 +32,10 @@ const updateRecord = async (collectionId: string, id: string, params: object) =>
     const project_base_url = `api/v1`
     return await request.post(`${project_base_url}/collections/${collectionId}/records/${id}`, params)
 }
+const retryRecord = async (collectionId: string, id: string) => {
+    const project_base_url = `api/v1`
+    return await request.post(`${project_base_url}/collections/${collectionId}/records/${id}/retry`)
+}
 const getRecord = async (collectionId: string, id: string) => {
     const project_base_url = `api/v1`
     return await request.get(`${project_base_url}/collections/${collectionId}/records/${id}`)
@@ -41,4 +45,4 @@ const uploadFile = async (params: object) => {
     return await request.post(`${project_base_url}/files`, params)
 
 }
-export { getRecordsList, createRecord, deleteRecord, updateRecord, getRecord, uploadFile }
+export { getRecordsList, createRecord, deleteRecord, updateRecord, retryRecord, getRecord, uploadFile }
