@@ -15,9 +15,9 @@ logger = logging.getLogger(__name__)
 
 
 class StatefulNormalSession(Session):
-    def __init__(self, assistant: Assistant, chat: Chat, save_logs: bool):
-        super().__init__(assistant, chat, save_logs)
-        self.debug = False
+    def __init__(self, assistant: Assistant, chat: Chat, save_logs: bool, debug: bool = False):
+        super().__init__(assistant, chat, save_logs or debug)
+        self.debug = debug
 
     async def generate(self, system_prompt_variables: Dict):
         error_event_id = None
@@ -156,7 +156,13 @@ class StatefulNormalSession(Session):
                 content_text=chat_completion_assistant_message_dict["content"],
                 logs=self.logs if self.save_logs else None,
             )
-            return BaseDataResponse(data=message.to_response_dict())
+            response_data = message.to_response_dict()
+            if self.debug:
+                return BaseDataResponse(
+                    data=response_data,
+                    trace=self.logs,
+                )
+            return BaseDataResponse(data=response_data)
 
         except MessageGenerationInvalidRequestException as e:
             logger.error(f"StatefulNormalSession.generate: HTTPException error = {e}")

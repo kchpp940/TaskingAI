@@ -48,22 +48,11 @@ async def api_chat_generate(
             session.stream_generate(system_prompt_variables),
             media_type="text/event-stream",
         )
-    elif payload.debug:
-        session = StatefulStreamSession(
-            assistant=assistant,
-            chat=chat,
-            stream=False,
-            debug=True,
-            save_logs=True,
-        )
-        return StreamingResponse(
-            session.stream_generate(system_prompt_variables),
-            media_type="text/event-stream",
-        )
     else:
         session = StatefulNormalSession(
             assistant=assistant,
             chat=chat,
             save_logs=False,
+            debug=payload.debug,
         )
         return await session.generate(system_prompt_variables)

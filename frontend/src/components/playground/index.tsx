@@ -839,7 +839,7 @@ function Playground() {
             debug: debug
         }
         let source;
-        if (stream || debug) {
+        if (stream) {
             source = new SSE(`${origin}/${project_base_url}/assistants/${id}/chats/${chatId}/generate`, {
                 headers: {
                     "Content-Type": "application/json",
@@ -857,10 +857,10 @@ function Playground() {
             })
         }
 
-        if (!stream && !debug) {
+        if (!stream) {
             try {
                 const res = await generateMessage(id, chatId, params)
-                const { data } = res
+                const { data, trace } = res
                 setContentTalk(prevValues => [...prevValues, {
                     role: 'Assistant',
                     content: {
@@ -878,6 +878,11 @@ function Playground() {
                     userId: false,
                     flag: true
                 }]))
+                if (debug && trace) {
+                    setDebugArray1(trace)
+                    localStorage.setItem('inputResult', JSON.stringify(trace))
+                    setTraceEvents(trace)
+                }
             } catch (error) {
                 const apiError = error as ApiErrorResponse;
                 const errorMessage: string = apiError.response.data.error.message;
@@ -905,30 +910,6 @@ function Playground() {
             }
 
             );
-        } else if (!stream && debug) {
-            let arr1: any = []
-            setTraceEvents([])
-            source?.addEventListener("message", (e: any) => {
-                if (e.data === '[DONE]') {
-                    setGenerateButtonLoading(false)
-                    setSendGenerateLoading(false)
-                    return
-                }
-                const data = JSON.parse(e.data)
-                if (data.object === 'MessageGenerationLog') {
-                    setDebugArray1(prevValues => {
-                        const updatedValues = [...prevValues, data];
-                        localStorage.setItem('inputResult', JSON.stringify(updatedValues));
-                        return updatedValues;
-                    });
-                    setTraceEvents(prev => [...prev, data])
-                }
-                arr1.push(data)
-                const binedArr = [...contentTalk, combineObjects(data, arr1)]
-                setContentTalk(binedArr)
-                localStorage.setItem('contentTalk', JSON.stringify(binedArr))
-
-            })
         } else {
             let arr1: any = []
             setTraceEvents([])
