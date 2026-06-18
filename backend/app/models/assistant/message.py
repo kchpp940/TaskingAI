@@ -48,12 +48,14 @@ class MessageGenerationLog(BaseModel):
 class MessageContent(BaseModel):
 
     """
-    MessageContent is the content of a message. Currently only text content is supported.
+    MessageContent is the content of a message. Currently supports text and artifacts.
     """
 
     text: str = Field(..., description="The text content of the message.", examples=["Hello!"])
-
-    # todo: support more content type, i.e. file, image, etc.
+    artifacts: Optional[List[Dict[str, Any]]] = Field(
+        None,
+        description="List of artifacts attached to the message (e.g. files, images, retrieval results).",
+    )
 
 
 class Message(ModelEntity):

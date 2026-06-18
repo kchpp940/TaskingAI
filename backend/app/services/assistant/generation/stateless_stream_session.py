@@ -146,7 +146,7 @@ class StatelessStreamSession(Session):
                 raise MessageGenerationException("Assistant message not generated.")
 
             async for event in MessageFinalizationHelper.build_stateless_stream_events(
-                self.result, yield_dict=self.yield_dict
+                self.result, yield_dict=self.yield_dict, builder=self.result_builder
             ):
                 yield event
 

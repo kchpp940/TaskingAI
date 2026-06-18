@@ -25,11 +25,13 @@ from .utils import (
     MessageGenerationException,
     MessageGenerationInvalidRequestException,
     generate_random_event_id,
+    current_timestamp_int_milliseconds,
 )
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "TraceEvent",
     "GenerationResult",
     "InferenceRound",
     "ToolRound",
@@ -81,16 +83,45 @@ def _extract_artifacts_from_retrieval(retrieval_results: List[Any]) -> List[Dict
         if isinstance(result, dict):
             if "artifact" in result or "file" in result or "url" in result:
                 artifact = {
-                "source": {
-                    "type": "retrieval",
-                    "index": idx,
+                    "source": {
+                        "type": "retrieval",
+                        "index": idx,
+                    }
                 }
-            }
-            for key in ("artifact", "file", "url", "name", "title"):
-                if key in result:
-                    artifact[key] = result[key]
-            artifacts.append(artifact)
+                for key in ("artifact", "file", "url", "name", "title"):
+                    if key in result:
+                        artifact[key] = result[key]
+                artifacts.append(artifact)
     return artifacts
+
+
+@dataclass
+class TraceEvent:
+    event_id: str
+    event: str
+    step: str
+    timestamp: int
+    duration_ms: Optional[int] = None
+    status: Optional[str] = None
+    input_summary: Optional[str] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def as_dict(self) -> Dict[str, Any]:
+        d = {
+            "event_id": self.event_id,
+            "event": self.event,
+            "step": self.step,
+            "timestamp": self.timestamp,
+        }
+        if self.duration_ms is not None:
+            d["duration_ms"] = self.duration_ms
+        if self.status is not None:
+            d["status"] = self.status
+        if self.input_summary is not None:
+            d["input_summary"] = self.input_summary
+        if self.metadata:
+            d["metadata"] = self.metadata
+        return d
 
 
 @dataclass
@@ -150,6 +181,7 @@ class GenerationResult:
     total_output_tokens: int = 0
 
     logs: List[Dict] = field(default_factory=list)
+    trace_events: List[TraceEvent] = field(default_factory=list)
 
     retrieval_results: List[Any] = field(default_factory=list)
 
@@ -161,6 +193,7 @@ class GenerationResult:
     persisted_message: Optional[Any] = None
 
     _accumulated_round_ids: Set[int] = field(default_factory=set, init=False, repr=False)
+    _active_trace_starts: Dict[str, int] = field(default_factory=dict, init=False, repr=False)
 
     @property
     def content_text(self) -> Optional[str]:
@@ -190,6 +223,10 @@ class GenerationResult:
             results.extend(tr.retrieval_results)
         return results
 
+    @property
+    def num_trace_events(self) -> int:
+        return len(self.trace_events)
+
     def accumulate_usage(self, input_tokens: int, output_tokens: int, round_index: Optional[int] = None):
         if round_index is not None:
             if round_index in self._accumulated_round_ids:
@@ -209,6 +246,18 @@ class GenerationResult:
         self.final_response_dict = response_dict
         return response_dict
 
+    def trace_summary(self) -> Dict[str, Any]:
+        event_types: Dict[str, Dict[str, Any]] = {}
+        for ev in self.trace_events:
+            et = event_types.setdefault(ev.event, {"count": 0, "total_duration_ms": 0})
+            et["count"] += 1
+            if ev.duration_ms is not None:
+                et["total_duration_ms"] += ev.duration_ms
+        return {
+            "num_events": len(self.trace_events),
+            "events": event_types,
+        }
+
     def as_summary_dict(self) -> Dict[str, Any]:
         return {
             "session_id": self.session_id,
@@ -220,6 +269,7 @@ class GenerationResult:
             "total_input_tokens": self.total_input_tokens,
             "total_output_tokens": self.total_output_tokens,
             "num_logs": len(self.logs),
+            "num_trace_events": self.num_trace_events,
             "num_retrieval_results": len(self.all_retrieval_results),
             "num_inference_rounds": len(self.inference_rounds),
             "num_accumulated_rounds": len(self._accumulated_round_ids),
@@ -227,6 +277,7 @@ class GenerationResult:
             "total_tool_calls": self.total_tool_calls,
             "num_artifacts": len(self.artifacts),
             "message_persisted": self.persisted_message is not None,
+            "trace_summary": self.trace_summary(),
         }
 
 
@@ -238,6 +289,71 @@ class GenerationResultBuilder:
     @property
     def result(self) -> GenerationResult:
         return self._result
+
+    def add_trace_event(
+        self,
+        event_id: str,
+        event: str,
+        step: str,
+        timestamp: Optional[int] = None,
+        duration_ms: Optional[int] = None,
+        status: Optional[str] = None,
+        input_summary: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> TraceEvent:
+        te = TraceEvent(
+            event_id=event_id,
+            event=event,
+            step=step,
+            timestamp=timestamp if timestamp is not None else current_timestamp_int_milliseconds(),
+            duration_ms=duration_ms,
+            status=status,
+            input_summary=input_summary,
+            metadata=metadata or {},
+        )
+        self._result.trace_events.append(te)
+        return te
+
+    def start_trace(
+        self,
+        event_id: str,
+        event: str,
+        input_summary: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> TraceEvent:
+        ts = current_timestamp_int_milliseconds()
+        self._result._active_trace_starts[event_id] = ts
+        return self.add_trace_event(
+            event_id=event_id,
+            event=event,
+            step="start",
+            timestamp=ts,
+            status="start",
+            input_summary=input_summary,
+            metadata=metadata,
+        )
+
+    def end_trace(
+        self,
+        event_id: str,
+        event: str,
+        status: str = "success",
+        input_summary: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> TraceEvent:
+        ts = current_timestamp_int_milliseconds()
+        start_ts = self._result._active_trace_starts.pop(event_id, None)
+        duration_ms = ts - start_ts if start_ts is not None else None
+        return self.add_trace_event(
+            event_id=event_id,
+            event=event,
+            step="end",
+            timestamp=ts,
+            duration_ms=duration_ms,
+            status=status,
+            input_summary=input_summary,
+            metadata=metadata,
+        )
 
     def append_chat_completion_input_log(self, event_id: str, save: bool = False):
         log_dict = build_chat_completion_input_log_dict(
@@ -381,29 +497,58 @@ class GenerationResultBuilder:
     def extend_logs(self, log_dicts: List[Dict]):
         self._result.logs.extend(log_dicts)
 
+    def attach_artifacts_to_response(self, response_dict: Dict) -> Dict:
+        if not self._result.artifacts:
+            return response_dict
+        message_dict = response_dict.get("message")
+        if message_dict is not None:
+            content = message_dict.get("content")
+            if isinstance(content, str):
+                message_dict["content"] = {
+                    "text": content,
+                    "artifacts": self._result.artifacts,
+                }
+            elif isinstance(content, dict):
+                content["artifacts"] = self._result.artifacts
+            else:
+                message_dict["artifacts"] = self._result.artifacts
+        else:
+            response_dict["artifacts"] = self._result.artifacts
+        return response_dict
+
 
 class MessageFinalizationHelper:
+    @staticmethod
+    def _build_metadata(result: GenerationResult) -> Dict[str, Any]:
+        return {
+            "num_tool_rounds": len(result.tool_rounds),
+            "total_tool_calls": result.total_tool_calls,
+            "num_artifacts": len(result.artifacts),
+            "num_retrieval_results": len(result.all_retrieval_results),
+            "num_trace_events": result.num_trace_events,
+            "num_inference_rounds": len(result.inference_rounds),
+            "trace_summary": result.trace_summary(),
+        }
+
     @staticmethod
     async def persist_assistant_message(result: GenerationResult):
         if not result.chat_id:
             raise MessageGenerationInvalidRequestException("Chat is required to create a message.")
         if result.content_text is None:
             raise MessageGenerationException("Assistant message content is not available to persist.")
-        metadata = {
-            "num_tool_rounds": len(result.tool_rounds),
-            "total_tool_calls": result.total_tool_calls,
-            "num_artifacts": len(result.artifacts),
-            "num_retrieval_results": len(result.all_retrieval_results),
-        }
+
+        content_kwargs: Dict[str, Any] = {"text": result.content_text}
         if result.artifacts:
-            metadata["artifacts"] = result.artifacts
+            content_kwargs["artifacts"] = result.artifacts
+        content = MessageContent(**content_kwargs)
+
         message = await message_ops.create(
             assistant_id=result.assistant_id,
             chat_id=result.chat_id,
             create_dict={
                 "role": MessageRole.ASSISTANT.value,
-                "content": MessageContent(text=result.content_text),
-                "metadata": metadata,
+                "content": content,
+                "metadata": MessageFinalizationHelper._build_metadata(result),
                 "logs": result.logs,
             },
             check_max_count=False,
@@ -424,17 +569,25 @@ class MessageFinalizationHelper:
         yield SSE_DONE_MSG
 
     @staticmethod
-    def build_stateless_normal_response(result: GenerationResult) -> ChatCompletionResponse:
+    def build_stateless_normal_response(result: GenerationResult, builder: Optional[GenerationResultBuilder] = None) -> ChatCompletionResponse:
         if result.final_response_dict is None:
             raise MessageGenerationException("No response dict available for stateless response.")
         result.apply_usage_to_response(result.final_response_dict)
+        if builder is not None and result.artifacts:
+            builder.attach_artifacts_to_response(result.final_response_dict)
         return ChatCompletionResponse(data=result.final_response_dict)
 
     @staticmethod
-    async def build_stateless_stream_events(result: GenerationResult, yield_dict: bool = False):
+    async def build_stateless_stream_events(
+        result: GenerationResult,
+        yield_dict: bool = False,
+        builder: Optional[GenerationResultBuilder] = None,
+    ):
         if result.final_response_dict is None:
             raise MessageGenerationException("No response dict available for stateless response.")
         result.apply_usage_to_response(result.final_response_dict)
+        if builder is not None and result.artifacts:
+            builder.attach_artifacts_to_response(result.final_response_dict)
         if yield_dict:
             yield result.final_response_dict
         else:

@@ -134,6 +134,12 @@ class Session(ABC):
 
         memory_event_id = generate_random_event_id()
         self.trace_collector.start(memory_event_id)
+        self.result_builder.start_trace(
+            event_id=memory_event_id,
+            event="memory",
+            input_summary="loading chat memory",
+            metadata={"has_chat": self.chat is not None},
+        )
         if retrieval_log:
             memory_log_input = build_trace_start_log_dict(
                 session_id=self.session_id,
@@ -168,6 +174,12 @@ class Session(ABC):
                 input_summary=f"{len(self.chat_memory_messages)} memory messages loaded",
             )
             self.logs.append(memory_log_output)
+        self.result_builder.end_trace(
+            event_id=memory_event_id,
+            event="memory",
+            input_summary=f"{len(self.chat_memory_messages)} memory messages loaded",
+            metadata={"num_messages": len(self.chat_memory_messages)},
+        )
         self.trace_collector.clear(memory_event_id)
 
         if self.assistant.tools:
@@ -200,6 +212,15 @@ class Session(ABC):
                 if retrieval_query_text:
                     retrieval_event_id = generate_random_event_id()
                     self.trace_collector.start(retrieval_event_id)
+                    self.result_builder.start_trace(
+                        event_id=retrieval_event_id,
+                        event="retrieval",
+                        input_summary=f"retrieving with top_k={self.assistant.retrieval_configs.top_k}",
+                        metadata={
+                            "top_k": self.assistant.retrieval_configs.top_k,
+                            "method": self.assistant.retrieval_configs.method.value,
+                        },
+                    )
                     if retrieval_log:
                         retrieval_log_input = build_retrieval_input_log_dict(
                             session_id=self.session_id,
@@ -224,6 +245,12 @@ class Session(ABC):
                             duration_ms=self.trace_collector.duration(retrieval_event_id),
                         )
                         self.logs.append(retrieval_log_output)
+                    self.result_builder.end_trace(
+                        event_id=retrieval_event_id,
+                        event="retrieval",
+                        input_summary=f"{len(retrieval_results)} retrieval results",
+                        metadata={"num_results": len(retrieval_results)},
+                    )
                     self.trace_collector.clear(retrieval_event_id)
 
             else:
@@ -236,6 +263,15 @@ class Session(ABC):
 
         prompt_event_id = generate_random_event_id()
         self.trace_collector.start(prompt_event_id)
+        self.result_builder.start_trace(
+            event_id=prompt_event_id,
+            event="prompt_build",
+            input_summary="building system prompt",
+            metadata={
+                "num_variables": len(system_prompt_variables or {}),
+                "has_retrieval_doc": retrieval_doc is not None,
+            },
+        )
         if retrieval_log:
             prompt_log_input = build_trace_start_log_dict(
                 session_id=self.session_id,
@@ -284,6 +320,15 @@ class Session(ABC):
                 input_summary=f"prompt built, {len(self.chat_completion_messages)} messages ready",
             )
             self.logs.append(prompt_log_output)
+        self.result_builder.end_trace(
+            event_id=prompt_event_id,
+            event="prompt_build",
+            input_summary=f"prompt built, {len(self.chat_completion_messages)} messages ready",
+            metadata={
+                "prompt_length": len(self.system_prompt),
+                "num_messages": len(self.chat_completion_messages),
+            },
+        )
         self.trace_collector.clear(prompt_event_id)
 
     async def use_tool(self, function_calls, round_index: int, log=False):
