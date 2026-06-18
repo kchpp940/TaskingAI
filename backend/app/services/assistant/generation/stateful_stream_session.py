@@ -136,7 +136,13 @@ class StatefulStreamSession(Session):
             if self.result.final_assistant_message_dict is None:
                 raise MessageGenerationException("Assistant message not generated.")
 
-            async for event in MessageFinalizationHelper.build_stateful_stream_events(self.result):
+            if self.debug:
+                for sse_event in self.result_builder.yield_trace_events_as_sse():
+                    yield sse_event
+
+            async for event in MessageFinalizationHelper.build_stateful_stream_events(
+                self.result, builder=self.result_builder
+            ):
                 yield event
 
         except MessageGenerationInvalidRequestException as e:

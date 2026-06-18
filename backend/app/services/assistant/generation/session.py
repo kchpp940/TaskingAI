@@ -334,6 +334,19 @@ class Session(ABC):
     async def use_tool(self, function_calls, round_index: int, log=False):
         logs = []
 
+        tool_use_event_id = f"tool_use_round_{round_index}"
+        self.trace_collector.start(tool_use_event_id)
+        self.result_builder.start_trace(
+            event_id=tool_use_event_id,
+            event="tool_use",
+            input_summary=f"validate {len(function_calls)} function call(s)",
+            metadata={
+                "round_index": round_index,
+                "num_function_calls": len(function_calls),
+                "function_names": [fc.get("name") for fc in function_calls],
+            },
+        )
+
         for function_call in function_calls:
             function_call_id = function_call["id"]
             event_id = function_call_id
@@ -368,12 +381,35 @@ class Session(ABC):
                     )
                     logs.append(retrieval_input_log_dict)
 
+        self.result_builder.end_trace(
+            event_id=tool_use_event_id,
+            event="tool_use",
+            input_summary=f"validated {len(function_calls)} function call(s)",
+            metadata={
+                "round_index": round_index,
+                "num_function_calls": len(function_calls),
+            },
+        )
+        self.trace_collector.clear(tool_use_event_id)
+
         if self.save_logs:
             self.logs.extend(logs)
         return logs
 
     async def run_tools(self, function_calls, log=False):
         self.chat_completion_messages.append({"role": "assistant", "function_calls": function_calls})
+
+        tool_run_event_id = f"tool_run_{generate_random_event_id()[:8]}"
+        self.trace_collector.start(tool_run_event_id)
+        self.result_builder.start_trace(
+            event_id=tool_run_event_id,
+            event="tool_run",
+            input_summary=f"executing {len(function_calls)} tool call(s)",
+            metadata={
+                "num_function_calls": len(function_calls),
+                "function_names": [fc.get("name") for fc in function_calls],
+            },
+        )
 
         tool_inputs = []
 
@@ -423,6 +459,9 @@ class Session(ABC):
                 )
                 tool_inputs.append(tool_input)
 
+        num_tool_outputs = 0
+        num_retrieval_results = 0
+
         if tool_inputs:
             if log:
                 for tool_input in tool_inputs:
@@ -439,6 +478,7 @@ class Session(ABC):
             for tool_output in tool_outputs:
                 self.chat_completion_messages.append(tool_output.to_function_message())
                 yield TOOL_RUN_TYPE_TOOL_OUTPUT, tool_output
+                num_tool_outputs += 1
 
                 if log:
                     tool_action_result_log_dict = build_tool_output_log_dict(
@@ -452,9 +492,31 @@ class Session(ABC):
                     yield TOOL_RUN_TYPE_LOG, tool_action_result_log_dict
                 self.trace_collector.clear(tool_output.tool_call_id)
 
+        self.result_builder.end_trace(
+            event_id=tool_run_event_id,
+            event="tool_run",
+            input_summary=f"executed {num_tool_outputs} tool(s), {num_retrieval_results} retrieval(s)",
+            metadata={
+                "num_function_calls": len(function_calls),
+                "num_tool_outputs": num_tool_outputs,
+                "num_retrieval_results": num_retrieval_results,
+            },
+        )
+        self.trace_collector.clear(tool_run_event_id)
+
     async def inference(self, event_id: Optional[str] = None) -> Tuple[Dict, List, Dict, Dict]:
         if event_id:
             self.trace_collector.start(event_id)
+            self.result_builder.start_trace(
+                event_id=event_id,
+                event="inference",
+                input_summary="non-stream chat completion",
+                metadata={
+                    "model_id": self.model.model_id,
+                    "num_messages": len(self.chat_completion_messages),
+                    "num_functions": len(self.chat_completion_functions),
+                },
+            )
 
         completion_data = await chat_completion(
             model=self.model,
@@ -466,11 +528,33 @@ class Session(ABC):
         assistant_message_dict = completion_data["message"]
         function_calls = assistant_message_dict.get("function_calls")
         usage = completion_data.get("usage")
+
+        if event_id:
+            self.result_builder.end_trace(
+                event_id=event_id,
+                event="inference",
+                input_summary=f"inference done, has_functions={function_calls is not None}",
+                metadata={
+                    "has_function_calls": function_calls is not None,
+                    "num_function_calls": len(function_calls) if function_calls else 0,
+                    "usage": usage,
+                },
+            )
         return assistant_message_dict, function_calls, usage, completion_data
 
     async def stream_inference(self, message_chunk_object_name="MessageChunk", event_id: Optional[str] = None):
         if event_id:
             self.trace_collector.start(event_id)
+            self.result_builder.start_trace(
+                event_id=event_id,
+                event="inference_stream",
+                input_summary="streaming chat completion",
+                metadata={
+                    "model_id": self.model.model_id,
+                    "num_messages": len(self.chat_completion_messages),
+                    "num_functions": len(self.chat_completion_functions),
+                },
+            )
         try:
             chunk_generator = await stream_chat_completion(
                 model=self.model,
@@ -483,6 +567,10 @@ class Session(ABC):
             logger.error(f"HTTPException occurred in streaming chat completion: {e}")
             raise MessageGenerationException(f"Error occurred in streaming chat completion.")
 
+        final_has_functions = False
+        final_num_functions = 0
+        final_usage = None
+
         async for chunk in chunk_generator:
             if chunk.get("object").lower() == "error":
                 raise MessageGenerationException(f"{chunk.get('message')}")
@@ -490,8 +578,12 @@ class Session(ABC):
             assistant_message_dict = chunk.get("message")
             if assistant_message_dict:
                 yield MESSAGE, assistant_message_dict
+                function_calls = assistant_message_dict.get("function_calls")
+                final_has_functions = function_calls is not None
+                final_num_functions = len(function_calls) if function_calls else 0
                 usage = chunk.get("usage")
                 if usage:
+                    final_usage = usage
                     yield USAGE, usage
                 yield MESSAGE_RESPONSE, chunk
 
@@ -500,6 +592,18 @@ class Session(ABC):
                 if delta:
                     chunk.update({"object": message_chunk_object_name})
                     yield MESSAGE_CHUNK, chunk
+
+        if event_id:
+            self.result_builder.end_trace(
+                event_id=event_id,
+                event="inference_stream",
+                input_summary=f"stream done, has_functions={final_has_functions}",
+                metadata={
+                    "has_function_calls": final_has_functions,
+                    "num_function_calls": final_num_functions,
+                    "usage": final_usage,
+                },
+            )
 
     def has_user_input_function_call(self, function_calls):
         if not function_calls:

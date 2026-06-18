@@ -497,23 +497,55 @@ class GenerationResultBuilder:
     def extend_logs(self, log_dicts: List[Dict]):
         self._result.logs.extend(log_dicts)
 
-    def attach_artifacts_to_response(self, response_dict: Dict) -> Dict:
+    def yield_trace_events_as_sse(self) -> List[str]:
+        """
+        Return a list of SSE-formatted strings representing all trace events collected so far.
+        Used by debug-mode streaming to output trace events.
+        """
+        sse_events = []
+        for te in self._result.trace_events:
+            d = te.as_dict()
+            d["object"] = "TraceEvent"
+            sse_events.append(f"data: {json.dumps(d)}\n\n")
+        return sse_events
+
+    def attach_artifacts_to_response(self, response_dict: Dict, mode: str = "stateful") -> Dict:
+        """
+        Attach artifacts to response dict, with mode-specific behavior.
+
+        Args:
+            response_dict: The response dict to attach artifacts to.
+            mode: "stateful" | "stateless"
+                - "stateful": for stateful sessions (TaskingAI internal), artifacts are
+                  attached inside message.content (as {text, artifacts} dict). This is
+                  consumed by MessageContent which has explicit artifacts support.
+                - "stateless": for stateless/OpenAI-compatible sessions, content remains a
+                  string (preserving OpenAI API contract), and artifacts are attached as
+                  a top-level extension field `response_dict.artifacts` and
+                  `response_dict.message.artifacts`.
+        """
         if not self._result.artifacts:
             return response_dict
-        message_dict = response_dict.get("message")
-        if message_dict is not None:
-            content = message_dict.get("content")
-            if isinstance(content, str):
-                message_dict["content"] = {
-                    "text": content,
-                    "artifacts": self._result.artifacts,
-                }
-            elif isinstance(content, dict):
-                content["artifacts"] = self._result.artifacts
+        if mode == "stateful":
+            message_dict = response_dict.get("message")
+            if message_dict is not None:
+                content = message_dict.get("content")
+                if isinstance(content, str):
+                    message_dict["content"] = {
+                        "text": content,
+                        "artifacts": self._result.artifacts,
+                    }
+                elif isinstance(content, dict):
+                    content["artifacts"] = self._result.artifacts
+                else:
+                    message_dict["artifacts"] = self._result.artifacts
             else:
-                message_dict["artifacts"] = self._result.artifacts
-        else:
+                response_dict["artifacts"] = self._result.artifacts
+        else:  # stateless
             response_dict["artifacts"] = self._result.artifacts
+            message_dict = response_dict.get("message")
+            if message_dict is not None:
+                message_dict["artifacts"] = self._result.artifacts
         return response_dict
 
 
@@ -531,11 +563,27 @@ class MessageFinalizationHelper:
         }
 
     @staticmethod
-    async def persist_assistant_message(result: GenerationResult):
+    async def persist_assistant_message(
+        result: GenerationResult,
+        builder: Optional[GenerationResultBuilder] = None,
+    ):
         if not result.chat_id:
             raise MessageGenerationInvalidRequestException("Chat is required to create a message.")
         if result.content_text is None:
             raise MessageGenerationException("Assistant message content is not available to persist.")
+
+        finalize_event_id = f"finalize_{generate_random_event_id()[:8]}"
+        if builder:
+            builder.start_trace(
+                event_id=finalize_event_id,
+                event="finalize",
+                input_summary="persisting assistant message",
+                metadata={
+                    "content_length": len(result.content_text),
+                    "num_artifacts": len(result.artifacts),
+                    "num_logs": len(result.logs),
+                },
+            )
 
         content_kwargs: Dict[str, Any] = {"text": result.content_text}
         if result.artifacts:
@@ -554,16 +602,27 @@ class MessageFinalizationHelper:
             check_max_count=False,
         )
         result.persisted_message = message
+
+        if builder:
+            builder.end_trace(
+                event_id=finalize_event_id,
+                event="finalize",
+                input_summary=f"message persisted, id={message.message_id}",
+                metadata={
+                    "message_id": message.message_id,
+                    "content_length": len(result.content_text),
+                },
+            )
         return message
 
     @staticmethod
-    async def build_stateful_normal_response(result: GenerationResult):
-        message = await MessageFinalizationHelper.persist_assistant_message(result)
+    async def build_stateful_normal_response(result: GenerationResult, builder: Optional[GenerationResultBuilder] = None):
+        message = await MessageFinalizationHelper.persist_assistant_message(result, builder=builder)
         return BaseDataResponse(data=message.to_response_dict())
 
     @staticmethod
-    async def build_stateful_stream_events(result: GenerationResult):
-        message = await MessageFinalizationHelper.persist_assistant_message(result)
+    async def build_stateful_stream_events(result: GenerationResult, builder: Optional[GenerationResultBuilder] = None):
+        message = await MessageFinalizationHelper.persist_assistant_message(result, builder=builder)
         message_dict = message.to_response_dict()
         yield f"data: {json.dumps(message_dict)}\n\n"
         yield SSE_DONE_MSG
@@ -573,8 +632,10 @@ class MessageFinalizationHelper:
         if result.final_response_dict is None:
             raise MessageGenerationException("No response dict available for stateless response.")
         result.apply_usage_to_response(result.final_response_dict)
-        if builder is not None and result.artifacts:
-            builder.attach_artifacts_to_response(result.final_response_dict)
+        if builder is not None:
+            if result.artifacts:
+                builder.attach_artifacts_to_response(result.final_response_dict, mode="stateless")
+            result.final_response_dict["trace_summary"] = result.trace_summary()
         return ChatCompletionResponse(data=result.final_response_dict)
 
     @staticmethod
@@ -586,8 +647,10 @@ class MessageFinalizationHelper:
         if result.final_response_dict is None:
             raise MessageGenerationException("No response dict available for stateless response.")
         result.apply_usage_to_response(result.final_response_dict)
-        if builder is not None and result.artifacts:
-            builder.attach_artifacts_to_response(result.final_response_dict)
+        if builder is not None:
+            if result.artifacts:
+                builder.attach_artifacts_to_response(result.final_response_dict, mode="stateless")
+            result.final_response_dict["trace_summary"] = result.trace_summary()
         if yield_dict:
             yield result.final_response_dict
         else:

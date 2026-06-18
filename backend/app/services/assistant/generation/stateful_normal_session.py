@@ -88,7 +88,9 @@ class StatefulNormalSession(Session):
                 else:
                     break
 
-            return await MessageFinalizationHelper.build_stateful_normal_response(self.result)
+            return await MessageFinalizationHelper.build_stateful_normal_response(
+                self.result, builder=self.result_builder
+            )
 
         except MessageGenerationInvalidRequestException as e:
             logger.error(f"StatefulNormalSession.generate: HTTPException error = {e}")
