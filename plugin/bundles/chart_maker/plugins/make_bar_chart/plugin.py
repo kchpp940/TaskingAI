@@ -34,29 +34,4 @@ class MakeBarChart(PluginHandler):
             base_64_fig, project_id, "png", "chart_maker/make_bar_chart"
         )
 
-        table_data = {
-            "columns": [x_title, y_title],
-            "rows": [[x, y] for x, y in zip(x_values, y_values)]
-        }
-
-        artifacts = [
-            Artifact(
-                type=ArtifactType.IMAGE,
-                mime_type="image/png",
-                title=title,
-                preview_url=url,
-                download_url=url,
-                size=len(bytes_fig),
-            ),
-            Artifact(
-                type=ArtifactType.TABLE,
-                mime_type="application/json",
-                title=f"{title} - Data",
-                content=table_data,
-            )
-        ]
-
-        return PluginOutput(
-            data={"url": url},
-            artifacts=artifacts
-        )
+        return PluginOutput(data={"url": url})

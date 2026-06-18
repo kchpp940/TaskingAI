@@ -28,7 +28,6 @@ class GenerateImage(PluginHandler):
                 if response.status == 200:
                     data = await response.json()
                     image_url = data["data"][0]["url"]
-                    revised_prompt = data["data"][0].get("revised_prompt", "")
                     image_format = "png"
                     image_url = await save_url_image_to_s3_or_local(
                         image_url=image_url,
@@ -36,26 +35,7 @@ class GenerateImage(PluginHandler):
                         file_format=image_format,
                         plugin_id="dalle_3/generate_image",
                     )
-                    
-                    artifacts = [
-                        Artifact(
-                            type=ArtifactType.IMAGE,
-                            mime_type="image/png",
-                            title="Generated Image",
-                            preview_url=image_url,
-                            download_url=image_url,
-                            metadata={
-                                "prompt": prompt,
-                                "revised_prompt": revised_prompt,
-                                "model": "dall-e-3",
-                            }
-                        )
-                    ]
-                    
-                    return PluginOutput(
-                        data={"url": image_url, "revised_prompt": revised_prompt},
-                        artifacts=artifacts
-                    )
+                    return PluginOutput(data={"url": image_url})
                 else:
                     data = await response.json()
                     raise_provider_api_error(json.dumps(data))

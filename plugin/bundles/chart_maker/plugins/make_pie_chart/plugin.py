@@ -32,29 +32,4 @@ class MakePieChart(PluginHandler):
             base_64_fig, project_id, "png", "chart_maker/make_pie_chart"
         )
 
-        table_data = {
-            "columns": ["Label", "Value"],
-            "rows": [[label, value] for label, value in zip(labels, values)]
-        }
-
-        artifacts = [
-            Artifact(
-                type=ArtifactType.IMAGE,
-                mime_type="image/png",
-                title=title,
-                preview_url=url,
-                download_url=url,
-                size=len(bytes_fig),
-            ),
-            Artifact(
-                type=ArtifactType.TABLE,
-                mime_type="application/json",
-                title=f"{title} - Data",
-                content=table_data,
-            )
-        ]
-
-        return PluginOutput(
-            data={"url": url},
-            artifacts=artifacts
-        )
+        return PluginOutput(data={"url": url})

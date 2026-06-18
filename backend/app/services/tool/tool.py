@@ -4,14 +4,13 @@ from typing import Dict, List
 from fastapi import APIRouter
 
 from app.config import CONFIG
-from app.models import BundleInstance, Tool, ToolInput, ToolOutput, ToolRef, ToolType, Artifact
+from app.models import BundleInstance, Tool, ToolInput, ToolOutput, ToolRef, ToolType
 from app.operators import action_ops, bundle_instance_ops
 from app.services.tool.plugin.cache import get_bundle, i18n_text
 from tkhelper.error import raise_request_validation_error
 
 from .action import run_action
 from .plugin import get_plugin, run_plugin
-from .artifact_sanitizer import sanitize_artifacts_backend, sanitize_tool_output_data
 
 router = APIRouter()
 
@@ -119,26 +118,13 @@ async def run_tools(tool_inputs: List[ToolInput]) -> List[ToolOutput]:
     tool_outputs: List[ToolOutput] = []
     for i, tool in enumerate(tool_inputs):
         if tool.type == ToolType.ACTION or tool.type == ToolType.PLUGIN:
-            artifacts_data = results[i].get("artifacts", [])
-            artifacts = []
-            for artifact_data in artifacts_data:
-                try:
-                    artifacts.append(Artifact(**artifact_data))
-                except Exception:
-                    pass
-            # Apply backend-side sanitization as a safety layer
-            artifacts = sanitize_artifacts_backend(artifacts)
-            # Also sanitize the data payload to keep LLM context small
-            raw_data = results[i].get("data")
-            sanitized_data = sanitize_tool_output_data(raw_data, artifacts) if raw_data else raw_data
             tool_outputs.append(
                 ToolOutput(
                     type=tool.type,
                     tool_id=tool.tool_id,
                     tool_call_id=tool.tool_call_id,
                     status=results[i].get("status"),
-                    data=sanitized_data,
-                    artifacts=artifacts,
+                    data=results[i].get("data"),
                 )
             )
 

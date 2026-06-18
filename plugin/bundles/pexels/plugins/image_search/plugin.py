@@ -64,47 +64,19 @@ class ImageSearch(PluginHandler):
                 if response.status == 200:
                     data = await response.json()
                     results = []
-                    artifacts = []
                     photos = data.get("photos", [])
-                    for i, photo in enumerate(photos):
-                        result_item = {
-                            "id": photo["id"],
-                            "width": photo["width"],
-                            "height": photo["height"],
-                            "url": photo["url"],
-                            "src": photo["src"],
-                            "description": photo["alt"],
-                            "photographer": photo.get("photographer"),
-                        }
-                        results.append(result_item)
-                        
-                        # Create artifact for each image (max 5 to avoid clutter)
-                        if i < 5:
-                            image_url = photo["src"].get("large") or photo["src"].get("original") or photo["src"].get("medium")
-                            if image_url:
-                                artifacts.append(
-                                    Artifact(
-                                        type=ArtifactType.IMAGE,
-                                        mime_type="image/jpeg",
-                                        title=f"Image {i+1}" + (f" - {photo.get('photographer', '')}" if photo.get('photographer') else ""),
-                                        preview_url=image_url,
-                                        download_url=photo["src"].get("original", image_url),
-                                        size=None,
-                                        metadata={
-                                            "photo_id": photo["id"],
-                                            "photographer": photo.get("photographer"),
-                                            "photographer_url": photo.get("photographer_url"),
-                                            "width": photo["width"],
-                                            "height": photo["height"],
-                                            "alt": photo.get("alt"),
-                                        }
-                                    )
-                                )
-                    
-                    return PluginOutput(
-                        data={"results": json.dumps(results)},
-                        artifacts=artifacts
-                    )
+                    for photo in photos:
+                        results.append(
+                            {
+                                "id": photo["id"],
+                                "width": photo["width"],
+                                "height": photo["height"],
+                                "url": photo["url"],
+                                "src": photo["src"],
+                                "description": photo["alt"],
+                            }
+                        )
+                    return PluginOutput(data={"results": json.dumps(results)})
                 else:
                     data = await response.json()
                     raise_provider_api_error(json.dumps(data))

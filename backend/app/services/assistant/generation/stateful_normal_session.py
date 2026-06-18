@@ -92,7 +92,6 @@ class StatefulNormalSession(Session):
             message = await self.create_assistant_message(
                 content_text=chat_completion_assistant_message_dict["content"],
                 logs=self.logs if self.save_logs else None,
-                artifacts=self.message_artifacts if self.message_artifacts else None,
             )
             return BaseDataResponse(data=message.to_response_dict())
 
