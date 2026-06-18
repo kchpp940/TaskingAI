@@ -37,11 +37,15 @@ class StatefulStreamSession(Session):
                     await asyncio.sleep(0.1)
 
             function_calls_round_index = 0
+            inference_round_index = 0
             while True:
-                chat_completion_function_calls_dict_list = None
-                chat_completion_assistant_message_dict = None
+                function_calls = None
+                assistant_message_dict = None
+                usage_dict = None
+                response_dict = None
 
                 try:
+                    inference_round_index += 1
                     chat_completion_event_id = generate_random_event_id()
 
                     input_log = self.result_builder.append_chat_completion_input_log(
@@ -51,40 +55,45 @@ class StatefulStreamSession(Session):
                         yield f"data: {json.dumps(input_log)}\n\n"
 
                     if self.stream:
-                        usage_dict = None
                         logger.debug(f"completion start inference, stream = {self.stream}")
                         async for t, data in self.stream_inference(message_chunk_object_name="MessageChunk"):
                             logger.debug(f"completion streaming, {t}: {data}")
                             if t == MESSAGE_CHUNK:
                                 yield f"data: {json.dumps(data)}\n\n"
                             elif t == MESSAGE:
-                                chat_completion_assistant_message_dict = data
+                                assistant_message_dict = data
                                 function_calls = data.get("function_calls")
-                                if function_calls:
-                                    chat_completion_function_calls_dict_list = function_calls
                             elif t == USAGE:
                                 usage_dict = data
                             elif t == MESSAGE_RESPONSE:
-                                pass
+                                response_dict = data
                             else:
                                 raise MessageGenerationException("Unknown data type")
                     else:
                         logger.debug(f"completion start inference, stream = {self.stream}")
                         (
-                            chat_completion_assistant_message_dict,
-                            chat_completion_function_calls_dict_list,
+                            assistant_message_dict,
+                            function_calls,
                             usage_dict,
-                            _,
+                            response_dict,
                         ) = await self.inference()
 
-                    output_log = self.result_builder.append_chat_completion_output_log(
+                    self.result_builder.append_chat_completion_output_log(
                         event_id=chat_completion_event_id,
-                        assistant_message_dict=chat_completion_assistant_message_dict,
+                        assistant_message_dict=assistant_message_dict,
                         usage_dict=usage_dict,
                         save=self.save_logs,
                     )
-                    if self.debug:
-                        yield f"data: {json.dumps(output_log)}\n\n"
+
+                    ir = self.result_builder.begin_inference_round(
+                        round_index=inference_round_index, event_id=chat_completion_event_id
+                    )
+                    self.result_builder.complete_inference_round(
+                        ir=ir,
+                        assistant_message_dict=assistant_message_dict,
+                        function_calls=function_calls,
+                        usage_dict=usage_dict,
+                    )
 
                 except MessageGenerationException as e:
                     raise e
@@ -94,21 +103,21 @@ class StatefulStreamSession(Session):
                     logger.error(f"Error occurred in chat completion inference: {e}")
                     raise MessageGenerationException(f"Error occurred in chat completion inference")
 
-                if chat_completion_function_calls_dict_list:
+                if function_calls:
                     function_calls_round_index += 1
                     try:
-                        logger.debug(f"FUNCTION_CALLS: tool_call = {chat_completion_function_calls_dict_list}")
+                        logger.debug(f"FUNCTION_CALLS: tool_call = {function_calls}")
 
                         if self.debug:
                             async for sse_event in self.result_builder.process_tool_calls_with_debug(
-                                function_calls=chat_completion_function_calls_dict_list,
+                                function_calls=function_calls,
                                 round_index=function_calls_round_index,
                                 log=self.debug or self.save_logs,
                             ):
                                 yield sse_event
                         else:
                             await self.result_builder.process_tool_calls(
-                                function_calls=chat_completion_function_calls_dict_list,
+                                function_calls=function_calls,
                                 round_index=function_calls_round_index,
                                 log=self.save_logs,
                             )
@@ -124,14 +133,10 @@ class StatefulStreamSession(Session):
                 else:
                     break
 
-            if not chat_completion_assistant_message_dict:
+            if self.result.final_assistant_message_dict is None:
                 raise MessageGenerationException("Assistant message not generated.")
 
-            async for event in MessageFinalizationHelper.build_stateful_stream_events(
-                session=self,
-                content_text=chat_completion_assistant_message_dict["content"],
-                logs=self.logs if self.save_logs else None,
-            ):
+            async for event in MessageFinalizationHelper.build_stateful_stream_events(self.result):
                 yield event
 
         except MessageGenerationInvalidRequestException as e:

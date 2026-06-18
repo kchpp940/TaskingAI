@@ -15,13 +15,14 @@ from app.models import (
     ChatCompletionRole,
     RetrievalMethod,
 )
+
 from app.services.model import get_model
 from app.services.tool import run_tools, fetch_tools
 from app.services.inference.chat_completion import chat_completion, stream_chat_completion
 
 from .utils import *
 from .log import *
-from .result_builder import GenerationResultBuilder
+from .result_builder import GenerationResult, GenerationResultBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -57,16 +58,34 @@ class Session(ABC):
 
         self.session_id = generate_random_session_id()
 
-        self.total_input_tokens = 0
-        self.total_output_tokens = 0
-
-        self.logs = []
         self.save_logs = save_logs
 
         self.trace_collector = TraceCollector()
         self.session_start_timestamp = current_timestamp_int_milliseconds()
 
-        self.result_builder = GenerationResultBuilder(self)
+        self.result: GenerationResult = GenerationResult(
+            session_id=self.session_id,
+            assistant_id=assistant.assistant_id,
+            chat_id=chat.chat_id if chat else None,
+        )
+        self.logs = self.result.logs
+        self.result_builder = GenerationResultBuilder(self, self.result)
+
+    @property
+    def total_input_tokens(self) -> int:
+        return self.result.total_input_tokens
+
+    @total_input_tokens.setter
+    def total_input_tokens(self, value: int):
+        self.result.total_input_tokens = value
+
+    @property
+    def total_output_tokens(self) -> int:
+        return self.result.total_output_tokens
+
+    @total_output_tokens.setter
+    def total_output_tokens(self, value: int):
+        self.result.total_output_tokens = value
 
     async def prepare(
         self,
@@ -384,8 +403,9 @@ class Session(ABC):
         assistant_message_dict = completion_data["message"]
         function_calls = assistant_message_dict.get("function_calls")
         usage = completion_data.get("usage")
-        self.total_input_tokens += usage.get("input_tokens", 0)
-        self.total_output_tokens += usage.get("output_tokens", 0)
+        self.result.accumulate_usage(
+            usage.get("input_tokens", 0), usage.get("output_tokens", 0)
+        )
         return assistant_message_dict, function_calls, usage, completion_data
 
     async def stream_inference(self, message_chunk_object_name="MessageChunk", event_id: Optional[str] = None):
@@ -412,8 +432,9 @@ class Session(ABC):
                 yield MESSAGE, assistant_message_dict
                 usage = chunk.get("usage")
                 if usage:
-                    self.total_input_tokens += usage.get("input_tokens", 0)
-                    self.total_output_tokens += usage.get("output_tokens", 0)
+                    self.result.accumulate_usage(
+                        usage.get("input_tokens", 0), usage.get("output_tokens", 0)
+                    )
                     yield USAGE, usage
                 yield MESSAGE_RESPONSE, chunk
 

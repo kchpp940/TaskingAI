@@ -36,8 +36,6 @@ class StatelessStreamSession(Session):
         ],
         functions: List[ChatCompletionFunction],
     ):
-        response_dict = None
-
         try:
             await self.prepare(
                 stream=self.stream,
@@ -48,18 +46,21 @@ class StatelessStreamSession(Session):
             )
 
             function_calls_round_index = 0
+            inference_round_index = 0
             while True:
-                chat_completion_function_calls_dict_list = None
-                chat_completion_assistant_message_dict = None
+                function_calls = None
+                assistant_message_dict = None
+                usage_dict = None
+                response_dict = None
 
                 try:
+                    inference_round_index += 1
                     chat_completion_event_id = generate_random_event_id()
                     self.result_builder.append_chat_completion_input_log(
                         event_id=chat_completion_event_id, save=self.save_logs
                     )
 
                     if self.stream:
-                        usage_dict = None
                         logger.debug(f"completion start inference, stream = {self.stream}")
                         async for t, data in self.stream_inference(message_chunk_object_name="ChatCompletionChunk"):
                             logger.debug(f"completion streaming, {t}: {data}")
@@ -69,10 +70,8 @@ class StatelessStreamSession(Session):
                                 else:
                                     yield f"data: {json.dumps(data)}\n\n"
                             elif t == MESSAGE:
-                                chat_completion_assistant_message_dict = data
+                                assistant_message_dict = data
                                 function_calls = data.get("function_calls")
-                                if function_calls:
-                                    chat_completion_function_calls_dict_list = function_calls
                             elif t == USAGE:
                                 usage_dict = data
                             elif t == MESSAGE_RESPONSE:
@@ -82,17 +81,28 @@ class StatelessStreamSession(Session):
                     else:
                         logger.debug(f"completion start inference, stream = {self.stream}")
                         (
-                            chat_completion_assistant_message_dict,
-                            chat_completion_function_calls_dict_list,
+                            assistant_message_dict,
+                            function_calls,
                             usage_dict,
                             response_dict,
                         ) = await self.inference()
 
                     self.result_builder.append_chat_completion_output_log(
                         event_id=chat_completion_event_id,
-                        assistant_message_dict=chat_completion_assistant_message_dict,
+                        assistant_message_dict=assistant_message_dict,
                         usage_dict=usage_dict,
                         save=self.save_logs,
+                    )
+
+                    ir = self.result_builder.begin_inference_round(
+                        round_index=inference_round_index, event_id=chat_completion_event_id
+                    )
+                    self.result_builder.complete_inference_round(
+                        ir=ir,
+                        assistant_message_dict=assistant_message_dict,
+                        function_calls=function_calls,
+                        usage_dict=usage_dict,
+                        response_dict=response_dict,
                     )
 
                 except MessageGenerationException as e:
@@ -104,20 +114,16 @@ class StatelessStreamSession(Session):
                     logger.error(f"Error occurred in chat completion inference: {e}")
                     raise MessageGenerationException(f"Error occurred in chat completion inference")
 
-                if chat_completion_function_calls_dict_list:
-                    filtered_user_function_calls = self.filter_user_function_calls(
-                        chat_completion_function_calls_dict_list
-                    )
-                    if filtered_user_function_calls:
-                        response_dict["message"]["function_calls"] = filtered_user_function_calls
+                if function_calls:
+                    if self.result.has_user_function_calls:
                         break
 
                     function_calls_round_index += 1
                     try:
-                        logger.debug(f"FUNCTION_CALLS: tool_call = {chat_completion_function_calls_dict_list}")
+                        logger.debug(f"FUNCTION_CALLS: tool_call = {function_calls}")
 
                         await self.result_builder.process_tool_calls(
-                            function_calls=chat_completion_function_calls_dict_list,
+                            function_calls=function_calls,
                             round_index=function_calls_round_index,
                             log=self.save_logs,
                         )
@@ -133,17 +139,14 @@ class StatelessStreamSession(Session):
                 else:
                     break
 
-            if not chat_completion_assistant_message_dict:
+            if self.result.final_assistant_message_dict is None:
                 raise MessageGenerationException("Assistant message not generated.")
 
-            if not response_dict:
+            if self.result.final_response_dict is None:
                 raise MessageGenerationException("Assistant message not generated.")
 
             async for event in MessageFinalizationHelper.build_stateless_stream_events(
-                response_dict=response_dict,
-                total_input_tokens=self.total_input_tokens,
-                total_output_tokens=self.total_output_tokens,
-                yield_dict=self.yield_dict,
+                self.result, yield_dict=self.yield_dict
             ):
                 yield event
 

@@ -28,26 +28,38 @@ class StatefulNormalSession(Session):
             await self.chat.lock()
 
             function_calls_round_index = 0
+            inference_round_index = 0
 
             while True:
                 try:
+                    inference_round_index += 1
                     chat_completion_event_id = generate_random_event_id()
                     self.result_builder.append_chat_completion_input_log(
                         event_id=chat_completion_event_id, save=self.save_logs
                     )
 
                     (
-                        chat_completion_assistant_message_dict,
-                        chat_completion_function_calls_dict_list,
+                        assistant_message_dict,
+                        function_calls,
                         usage_dict,
-                        _,
+                        completion_data,
                     ) = await self.inference()
 
                     self.result_builder.append_chat_completion_output_log(
                         event_id=chat_completion_event_id,
-                        assistant_message_dict=chat_completion_assistant_message_dict,
+                        assistant_message_dict=assistant_message_dict,
                         usage_dict=usage_dict,
                         save=self.save_logs,
+                    )
+
+                    ir = self.result_builder.begin_inference_round(
+                        round_index=inference_round_index, event_id=chat_completion_event_id
+                    )
+                    self.result_builder.complete_inference_round(
+                        ir=ir,
+                        assistant_message_dict=assistant_message_dict,
+                        function_calls=function_calls,
+                        usage_dict=usage_dict,
                     )
 
                 except HTTPException as e:
@@ -55,14 +67,14 @@ class StatefulNormalSession(Session):
                 except Exception as e:
                     raise MessageGenerationException(f"Error occurred in chat completion inference")
 
-                logger.debug(f"chat_completion_assistant_message = {chat_completion_assistant_message_dict}")
-                logger.debug(f"chat_completion_function_calls_dict_list = {chat_completion_function_calls_dict_list}")
+                logger.debug(f"chat_completion_assistant_message = {assistant_message_dict}")
+                logger.debug(f"chat_completion_function_calls_dict_list = {function_calls}")
 
-                if chat_completion_function_calls_dict_list:
+                if function_calls:
                     function_calls_round_index += 1
                     try:
                         await self.result_builder.process_tool_calls(
-                            chat_completion_function_calls_dict_list,
+                            function_calls,
                             round_index=function_calls_round_index,
                             log=self.save_logs,
                         )
@@ -76,11 +88,7 @@ class StatefulNormalSession(Session):
                 else:
                     break
 
-            return await MessageFinalizationHelper.build_stateful_normal_response(
-                session=self,
-                content_text=chat_completion_assistant_message_dict["content"],
-                logs=self.logs if self.save_logs else None,
-            )
+            return await MessageFinalizationHelper.build_stateful_normal_response(self.result)
 
         except MessageGenerationInvalidRequestException as e:
             logger.error(f"StatefulNormalSession.generate: HTTPException error = {e}")

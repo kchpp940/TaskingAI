@@ -34,26 +34,39 @@ class StatelessNormalSession(Session):
                 chat_completion_input_functions=functions,
             )
             function_calls_round_index = 0
+            inference_round_index = 0
 
             while True:
                 try:
+                    inference_round_index += 1
                     chat_completion_event_id = generate_random_event_id()
                     self.result_builder.append_chat_completion_input_log(
                         event_id=chat_completion_event_id, save=self.save_logs
                     )
 
                     (
-                        chat_completion_assistant_message_dict,
-                        chat_completion_function_calls_dict_list,
+                        assistant_message_dict,
+                        function_calls,
                         usage_dict,
-                        response_dict,
+                        completion_data,
                     ) = await self.inference()
 
                     self.result_builder.append_chat_completion_output_log(
                         event_id=chat_completion_event_id,
-                        assistant_message_dict=chat_completion_assistant_message_dict,
+                        assistant_message_dict=assistant_message_dict,
                         usage_dict=usage_dict,
                         save=self.save_logs,
+                    )
+
+                    ir = self.result_builder.begin_inference_round(
+                        round_index=inference_round_index, event_id=chat_completion_event_id
+                    )
+                    self.result_builder.complete_inference_round(
+                        ir=ir,
+                        assistant_message_dict=assistant_message_dict,
+                        function_calls=function_calls,
+                        usage_dict=usage_dict,
+                        response_dict=completion_data,
                     )
 
                 except HTTPException as e:
@@ -61,23 +74,19 @@ class StatelessNormalSession(Session):
                 except Exception as e:
                     raise MessageGenerationException(f"Error occurred in chat completion inference")
 
-                logger.debug(f"chat_completion_assistant_message = {chat_completion_assistant_message_dict}")
-                logger.debug(f"chat_completion_function_calls_dict_list = {chat_completion_function_calls_dict_list}")
+                logger.debug(f"chat_completion_assistant_message = {assistant_message_dict}")
+                logger.debug(f"chat_completion_function_calls_dict_list = {function_calls}")
 
-                if chat_completion_function_calls_dict_list:
-                    filtered_user_function_calls = self.filter_user_function_calls(
-                        chat_completion_function_calls_dict_list
-                    )
-                    if filtered_user_function_calls:
-                        response_dict["message"]["function_calls"] = filtered_user_function_calls
+                if function_calls:
+                    if self.result.has_user_function_calls:
                         break
 
                     function_calls_round_index += 1
                     try:
-                        logger.debug(f"FUNCTION_CALLS: tool_call = {chat_completion_function_calls_dict_list}")
+                        logger.debug(f"FUNCTION_CALLS: tool_call = {function_calls}")
 
                         await self.result_builder.process_tool_calls(
-                            chat_completion_function_calls_dict_list,
+                            function_calls,
                             round_index=function_calls_round_index,
                             log=self.save_logs,
                         )
@@ -91,11 +100,7 @@ class StatelessNormalSession(Session):
                 else:
                     break
 
-            return MessageFinalizationHelper.build_stateless_normal_response(
-                response_dict=response_dict,
-                total_input_tokens=self.total_input_tokens,
-                total_output_tokens=self.total_output_tokens,
-            )
+            return MessageFinalizationHelper.build_stateless_normal_response(self.result)
 
         except MessageGenerationInvalidRequestException as e:
             logger.error(f"StatelessNormalSession.generate: HTTPException error = {e}")
