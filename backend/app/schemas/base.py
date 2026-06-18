@@ -11,7 +11,6 @@ class BaseEmptyResponse(BaseModel):
 class BaseDataResponse(BaseModel):
     status: str = Field("success")
     data: Optional[Any] = None
-    trace: Optional[Any] = Field(None, description="Optional trace events for debugging.")
 
 
 class BaseErrorResponse(BaseModel):

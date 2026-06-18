@@ -1,8 +1,7 @@
 from fastapi import APIRouter, Depends, Request
 from typing import Dict
-from starlette.responses import StreamingResponse
-
-from tkhelper.schemas.base import BaseDataResponse
+from starlette.responses import StreamingResponse, Response
+from fastapi.responses import JSONResponse
 
 from app.services.assistant import get_assistant_and_chat, StatefulNormalSession, StatefulStreamSession
 from app.schemas.assistant.generate import MessageGenerateRequest
@@ -23,7 +22,7 @@ router = APIRouter()
     tags=["Assistant - Message"],
     responses={422: {"description": "Unprocessable Entity"}},
     description="Generate a new message with the role of 'assistant'.",
-    response_model=BaseDataResponse,
+    response_model=None,
 )
 async def api_chat_generate(
     request: Request,
@@ -31,7 +30,7 @@ async def api_chat_generate(
     chat_id: str,
     payload: MessageGenerateRequest,
     auth_info: Dict = Depends(auth_info_required),
-):
+) -> Response:
     system_prompt_variables = payload.system_prompt_variables
 
     assistant, chat = await get_assistant_and_chat(assistant_id, chat_id)
@@ -55,4 +54,5 @@ async def api_chat_generate(
             save_logs=False,
             debug=payload.debug,
         )
-        return await session.generate(system_prompt_variables)
+        result = await session.generate(system_prompt_variables)
+        return JSONResponse(content=result)

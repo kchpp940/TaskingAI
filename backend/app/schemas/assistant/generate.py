@@ -23,7 +23,7 @@ class MessageGenerateRequest(BaseModel):
     )
     debug: bool = Field(
         False,
-        description="Whether to include the debug information in the response. When this option is turned on, the response data will be returned in SSE format.",
+        description="Whether to include trace debug information in the response. When stream=True, trace events are returned as SSE MessageGenerationLog events. When stream=False, trace events are returned in the 'trace' field of the JSON response.",
         examples=[False],
     )
 
