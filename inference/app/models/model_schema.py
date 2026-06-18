@@ -131,8 +131,8 @@ class ModelSchema(BaseModel):
             warnings=build_warnings,
         )
 
-    def to_dict(self, lang: str):
-        return {
+    def to_dict(self, lang: str, include_internal: bool = False):
+        result = {
             "object": self.object_name(),
             "model_schema_id": self.model_schema_id,
             "name": i18n_text(self.provider_id, self.name, lang),
@@ -145,9 +145,11 @@ class ModelSchema(BaseModel):
             "config_schemas": self.config_schemas,
             "allowed_configs": [config["config_id"] for config in self.config_schemas],
             "pricing": self.pricing.model_dump(exclude_none=True) if self.pricing else None,
-            "capabilities": self.capabilities.to_dict(),
-            "warnings": [w.model_dump() for w in self.warnings],
         }
+        if include_internal:
+            result["capabilities"] = self.capabilities.to_dict()
+            result["warnings"] = [w.model_dump() for w in self.warnings]
+        return result
 
 
 def apply_capability_normalization(model_schema: ModelSchema, properties_raw: Optional[Dict]) -> None:
