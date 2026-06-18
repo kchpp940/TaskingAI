@@ -1,5 +1,5 @@
-from typing import Dict, Optional, Type, Set
-from pydantic import BaseModel, ValidationError
+from typing import Dict, Optional, Type, Set, List, Any, Union
+from pydantic import BaseModel, ValidationError, Field
 from app.models.base import BaseModelProperties, BaseModelPricing
 from app.error import raise_http_error, ErrorCode
 import logging
@@ -10,7 +10,52 @@ __all__ = [
     "ModelTypeRegistry",
     "get_registry",
     "register_model_type",
+    "ModelCapabilities",
+    "ModelSchemaWarning",
+    "ModelSchemaWarningCode",
+    "normalize_model_schema_capabilities",
+    "NormalizationResult",
 ]
+
+
+class ModelSchemaWarningCode(str):
+    PROPERTIES_UNREGISTERED_TYPE = "properties_unregistered_type"
+    PRICING_UNREGISTERED_TYPE = "pricing_unregistered_type"
+    PROPERTIES_DEFAULTS_USED = "properties_defaults_used"
+    CAPABILITY_FROM_TYPE_DEFAULT = "capability_from_type_default"
+    PROPERTIES_FIELD_MISSING = "properties_field_missing"
+
+
+class ModelSchemaWarning(BaseModel):
+    code: str
+    message: str
+    details: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ModelCapabilities(BaseModel):
+    streaming: bool = False
+    function_call: bool = False
+    vision: bool = False
+    context_window: Optional[int] = None
+    max_output_tokens: Optional[int] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return self.model_dump(exclude_none=True)
+
+
+class NormalizationResult(BaseModel):
+    capabilities: ModelCapabilities
+    warnings: List[ModelSchemaWarning] = Field(default_factory=list)
+
+
+_CAPABILITY_FIELD_MAP: Dict[str, str] = {
+    "streaming": "streaming",
+    "function_call": "function_call",
+    "vision": "vision",
+}
+
+_CONTEXT_WINDOW_FIELD = "input_token_limit"
+_MAX_OUTPUT_FIELD = "output_token_limit"
 
 
 class _ModelTypeEntry:
@@ -138,6 +183,103 @@ class ModelTypeRegistry:
     def has_capability(self, model_type: str, capability: str) -> bool:
         return capability in self.get_capabilities(model_type)
 
+    def normalize_capabilities(
+        self,
+        model_type: str,
+        properties: Optional[BaseModelProperties],
+        properties_raw: Optional[Dict],
+        model_schema_id: str,
+    ) -> NormalizationResult:
+        self._ensure_bootstrapped()
+        warnings: List[ModelSchemaWarning] = []
+        caps = ModelCapabilities()
+
+        type_default_caps = self.get_capabilities(model_type)
+
+        for reg_capability, prop_name in _CAPABILITY_FIELD_MAP.items():
+            if properties is not None and hasattr(properties, prop_name):
+                value = getattr(properties, prop_name)
+                setattr(caps, reg_capability, bool(value))
+            elif reg_capability in type_default_caps:
+                setattr(caps, reg_capability, True)
+                warnings.append(
+                    ModelSchemaWarning(
+                        code=ModelSchemaWarningCode.CAPABILITY_FROM_TYPE_DEFAULT,
+                        message=(
+                            f"Capability '{reg_capability}' inferred from model_type default "
+                            f"(properties field '{prop_name}' not present)."
+                        ),
+                        details={
+                            "capability": reg_capability,
+                            "property_field": prop_name,
+                            "model_schema_id": model_schema_id,
+                            "model_type": model_type,
+                        },
+                    )
+                )
+
+        if properties is not None:
+            props_dict = properties.model_dump(exclude_none=True)
+            if hasattr(properties, _CONTEXT_WINDOW_FIELD):
+                caps.context_window = getattr(properties, _CONTEXT_WINDOW_FIELD)
+            elif _CONTEXT_WINDOW_FIELD in props_dict:
+                caps.context_window = props_dict.get(_CONTEXT_WINDOW_FIELD)
+            elif properties_raw and _CONTEXT_WINDOW_FIELD in properties_raw:
+                caps.context_window = properties_raw[_CONTEXT_WINDOW_FIELD]
+
+            if hasattr(properties, _MAX_OUTPUT_FIELD):
+                caps.max_output_tokens = getattr(properties, _MAX_OUTPUT_FIELD)
+            elif _MAX_OUTPUT_FIELD in props_dict:
+                caps.max_output_tokens = props_dict.get(_MAX_OUTPUT_FIELD)
+            elif properties_raw and _MAX_OUTPUT_FIELD in properties_raw:
+                caps.max_output_tokens = properties_raw[_MAX_OUTPUT_FIELD]
+
+        properties_cls = self.get_properties_cls(model_type)
+        if properties_cls is not None:
+            schema_fields = set(properties_cls.model_fields.keys())
+            if properties_raw:
+                provided_fields = set(properties_raw.keys())
+                unsupported = provided_fields - schema_fields
+                if unsupported:
+                    for field in sorted(unsupported):
+                        warnings.append(
+                            ModelSchemaWarning(
+                                code=ModelSchemaWarningCode.PROPERTIES_FIELD_MISSING,
+                                message=(
+                                    f"Properties field '{field}' is not declared in "
+                                    f"{properties_cls.__name__} — will be ignored by capability normalization."
+                                ),
+                                details={
+                                    "field": field,
+                                    "properties_cls": properties_cls.__name__,
+                                    "model_schema_id": model_schema_id,
+                                },
+                            )
+                        )
+            declared_cap_fields = {
+                name: fld for name, fld in _CAPABILITY_FIELD_MAP.items() if fld in schema_fields
+            }
+            if properties is None:
+                for cap, fld in declared_cap_fields.items():
+                    if cap in type_default_caps:
+                        continue
+                    warnings.append(
+                        ModelSchemaWarning(
+                            code=ModelSchemaWarningCode.PROPERTIES_DEFAULTS_USED,
+                            message=(
+                                f"No properties instance for model_type '{model_type}', "
+                                f"using False for capability '{cap}' (field '{fld}')."
+                            ),
+                            details={
+                                "capability": cap,
+                                "property_field": fld,
+                                "model_schema_id": model_schema_id,
+                            },
+                        )
+                    )
+
+        return NormalizationResult(capabilities=caps, warnings=warnings)
+
 
 _registry = ModelTypeRegistry()
 
@@ -153,3 +295,17 @@ def register_model_type(
 
 def get_registry() -> ModelTypeRegistry:
     return _registry
+
+
+def normalize_model_schema_capabilities(
+    model_type: str,
+    properties: Optional[BaseModelProperties],
+    properties_raw: Optional[Dict],
+    model_schema_id: str,
+) -> NormalizationResult:
+    return _registry.normalize_capabilities(
+        model_type=model_type,
+        properties=properties,
+        properties_raw=properties_raw,
+        model_schema_id=model_schema_id,
+    )

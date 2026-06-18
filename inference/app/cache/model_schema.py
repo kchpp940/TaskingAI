@@ -1,7 +1,7 @@
 import logging
 import os
-from typing import List, Dict
-from app.models import ModelSchema
+from typing import List, Dict, Tuple
+from app.models import ModelSchema, apply_capability_normalization
 from app.models.yaml_loader import load_yaml_files_from_dir, PROVIDERS_ROOT
 from config import CONFIG
 from app.utils import checksum
@@ -32,9 +32,10 @@ def _read_model_schema_yamls(provider_id: str) -> List[Dict]:
     return results
 
 
-def _parse_model_schemas(raw_entries: List[Dict]) -> List[ModelSchema]:
+def _parse_model_schemas(raw_entries: List[Dict]) -> Tuple[List[ModelSchema], List[Dict]]:
     model_schema_ids = {}
-    model_schemas = []
+    model_schemas: List[ModelSchema] = []
+    ordered_raw: List[Dict] = []
     for data in raw_entries:
         model_schema_id = data.get("model_schema_id")
         provider_id = data.get("provider_id", "unknown")
@@ -44,20 +45,37 @@ def _parse_model_schemas(raw_entries: List[Dict]) -> List[ModelSchema]:
         try:
             model_schema = ModelSchema.build(data)
             model_schemas.append(model_schema)
+            ordered_raw.append(data)
         except Exception as e:
             logger.error("Error building ModelSchema from %s: %s", data.get("model_schema_id", "unknown"), e)
-    return model_schemas
+    return model_schemas, ordered_raw
 
 
-def _filter_and_sort(model_schemas: List[ModelSchema], allowed_providers: List[str]) -> List[ModelSchema]:
+def _normalize_capabilities(model_schemas: List[ModelSchema], raw_entries: List[Dict]) -> None:
+    for model_schema, raw in zip(model_schemas, raw_entries):
+        properties_raw = raw.get("properties", {})
+        apply_capability_normalization(model_schema, properties_raw)
+        if model_schema.warnings:
+            for warning in model_schema.warnings:
+                logger.info(
+                    "[%s] %s: %s",
+                    warning.code,
+                    model_schema.model_schema_id,
+                    warning.message,
+                )
+
+
+def _filter_and_sort(model_schemas: List[ModelSchema], raw_entries: List[Dict], allowed_providers: List[str]):
     if allowed_providers:
-        model_schemas = [
-            model_schema
-            for model_schema in model_schemas
-            if model_schema.provider_id in allowed_providers
+        filtered_pairs = [
+            (schema, raw)
+            for schema, raw in zip(model_schemas, raw_entries)
+            if schema.provider_id in allowed_providers
         ]
-    model_schemas.sort(key=lambda x: x.model_schema_id)
-    return model_schemas
+        model_schemas = [p[0] for p in filtered_pairs]
+        raw_entries = [p[1] for p in filtered_pairs]
+    sorted_pairs = sorted(zip(model_schemas, raw_entries), key=lambda pair: pair[0].model_schema_id)
+    return [p[0] for p in sorted_pairs], [p[1] for p in sorted_pairs]
 
 
 def _build_indices(model_schemas: List[ModelSchema]):
@@ -78,9 +96,11 @@ def load_model_schema_data(provider_ids: List[str]) -> None:
     for provider_id in provider_ids:
         all_raw_entries.extend(_read_model_schema_yamls(provider_id))
 
-    model_schemas = _parse_model_schemas(all_raw_entries)
+    model_schemas, ordered_raw = _parse_model_schemas(all_raw_entries)
 
-    model_schemas = _filter_and_sort(model_schemas, CONFIG.ALLOWED_PROVIDERS)
+    model_schemas, ordered_raw = _filter_and_sort(model_schemas, ordered_raw, CONFIG.ALLOWED_PROVIDERS)
+
+    _normalize_capabilities(model_schemas, ordered_raw)
 
     model_schema_dict, provider_model_schema_dict = _build_indices(model_schemas)
 
@@ -120,3 +140,4 @@ def get_model_schema_cache() -> List[Dict]:
 
 def get_model_schema_checksum() -> str:
     return __model_schema_checksum
+

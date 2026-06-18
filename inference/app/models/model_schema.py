@@ -1,9 +1,14 @@
 from enum import Enum
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, Field
 from typing import Dict, Optional, List, Tuple
 from .utils import i18n_text
 from .base import BaseModelProperties, BaseModelPricing
-from .model_type_registry import get_registry
+from .model_type_registry import (
+    get_registry,
+    ModelCapabilities,
+    ModelSchemaWarning,
+    normalize_model_schema_capabilities,
+)
 from app.error import raise_http_error, ErrorCode
 from .model_config import load_config
 import logging
@@ -13,7 +18,7 @@ warnings.filterwarnings("ignore", module="pydantic")
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["ModelType", "ModelSchema", "validate_model_info"]
+__all__ = ["ModelType", "ModelSchema", "validate_model_info", "apply_capability_normalization"]
 
 
 class ModelType(str, Enum):
@@ -37,29 +42,17 @@ class ModelSchema(BaseModel):
     config_schemas: List[Dict]
     pricing: Optional[BaseModelPricing]
 
+    capabilities: ModelCapabilities = Field(default_factory=ModelCapabilities)
+    warnings: List[ModelSchemaWarning] = Field(default_factory=list)
+
     def allow_stream(self):
-        registry = get_registry()
-        if registry.has_capability(self.type.value, "streaming"):
-            if self.properties is None:
-                return True
-            return getattr(self.properties, "streaming", False)
-        return False
+        return self.capabilities.streaming
 
     def allow_function_call(self):
-        registry = get_registry()
-        if registry.has_capability(self.type.value, "function_call"):
-            if self.properties is None:
-                return True
-            return getattr(self.properties, "function_call", False)
-        return False
+        return self.capabilities.function_call
 
     def allow_vision_input(self):
-        registry = get_registry()
-        if registry.has_capability(self.type.value, "vision"):
-            if self.properties is None:
-                return True
-            return getattr(self.properties, "vision", False)
-        return False
+        return self.capabilities.vision
 
     @staticmethod
     def object_name():
@@ -71,27 +64,61 @@ class ModelSchema(BaseModel):
 
         model_type = ModelType(row["type"])
         model_type_value = model_type.value
+        model_schema_id = row["model_schema_id"]
+        properties_raw = row.get("properties", {})
 
-        properties = registry.build_properties(model_type_value, row.get("properties", {}))
+        properties = registry.build_properties(model_type_value, properties_raw)
 
         pricing = registry.build_pricing(model_type_value, row.get("pricing", {}))
 
-        if properties is None and row.get("properties"):
+        build_warnings: List[ModelSchemaWarning] = []
+
+        if properties is None and properties_raw:
+            from .model_type_registry import ModelSchemaWarningCode
+
+            build_warnings.append(
+                ModelSchemaWarning(
+                    code=ModelSchemaWarningCode.PROPERTIES_UNREGISTERED_TYPE,
+                    message=(
+                        "Properties dict provided but no properties class registered "
+                        f"for model_type={model_type_value}."
+                    ),
+                    details={
+                        "model_type": model_type_value,
+                        "model_schema_id": model_schema_id,
+                    },
+                )
+            )
             logger.warning(
                 "Properties dict provided but no properties class registered for model_type=%s, model_schema_id=%s",
                 model_type_value,
-                row.get("model_schema_id"),
+                model_schema_id,
             )
 
         if pricing is None and row.get("pricing"):
+            from .model_type_registry import ModelSchemaWarningCode
+
+            build_warnings.append(
+                ModelSchemaWarning(
+                    code=ModelSchemaWarningCode.PRICING_UNREGISTERED_TYPE,
+                    message=(
+                        "Pricing dict provided but no pricing class registered "
+                        f"for model_type={model_type_value}."
+                    ),
+                    details={
+                        "model_type": model_type_value,
+                        "model_schema_id": model_schema_id,
+                    },
+                )
+            )
             logger.warning(
                 "Pricing dict provided but no pricing class registered for model_type=%s, model_schema_id=%s",
                 model_type_value,
-                row.get("model_schema_id"),
+                model_schema_id,
             )
 
         return cls(
-            model_schema_id=row["model_schema_id"],
+            model_schema_id=model_schema_id,
             name=row["name"] or "",
             description=row["description"],
             deprecated=row.get("deprecated", False),
@@ -101,6 +128,7 @@ class ModelSchema(BaseModel):
             properties=properties,
             config_schemas=[load_config(config_schema) for config_schema in row.get("config_schemas") or []],
             pricing=pricing,
+            warnings=build_warnings,
         )
 
     def to_dict(self, lang: str):
@@ -117,7 +145,21 @@ class ModelSchema(BaseModel):
             "config_schemas": self.config_schemas,
             "allowed_configs": [config["config_id"] for config in self.config_schemas],
             "pricing": self.pricing.model_dump(exclude_none=True) if self.pricing else None,
+            "capabilities": self.capabilities.to_dict(),
+            "warnings": [w.model_dump() for w in self.warnings],
         }
+
+
+def apply_capability_normalization(model_schema: ModelSchema, properties_raw: Optional[Dict]) -> None:
+    result = normalize_model_schema_capabilities(
+        model_type=model_schema.type.value,
+        properties=model_schema.properties,
+        properties_raw=properties_raw,
+        model_schema_id=model_schema.model_schema_id,
+    )
+    model_schema.capabilities = result.capabilities
+    for warning in result.warnings:
+        model_schema.warnings.append(warning)
 
 
 def validate_model_info(
