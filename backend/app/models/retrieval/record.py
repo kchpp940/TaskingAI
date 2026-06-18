@@ -81,6 +81,10 @@ class Record(ModelEntity):
         None,
         description="The original import parameters for retry",
     )
+    import_attempt_id: Optional[str] = Field(
+        None,
+        description="Unique ID for each import attempt, used to detect and discard stale tasks",
+    )
     updated_timestamp: int = updated_timestamp_field()
     created_timestamp: int = created_timestamp_field()
 
@@ -113,6 +117,7 @@ class Record(ModelEntity):
             processing_stage=ImportStage(row["processing_stage"]) if row.get("processing_stage") else None,
             error_message=row.get("error_message"),
             import_params=load_json_attr(row, "import_params", None),
+            import_attempt_id=row.get("import_attempt_id"),
             updated_timestamp=row["updated_timestamp"],
             created_timestamp=row["created_timestamp"],
         )

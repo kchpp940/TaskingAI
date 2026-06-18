@@ -17,7 +17,8 @@ async def _execute_import_task(payload: ImportTaskPayload) -> None:
     """
     logger.info(
         f"Executing record import task: record_id={payload.record_id}, "
-        f"task_type={payload.task_type}, start_stage={payload.start_stage}"
+        f"task_type={payload.task_type}, start_stage={payload.start_stage}, "
+        f"attempt_id={payload.import_attempt_id}"
     )
 
     collection: Optional[Collection] = None
@@ -42,13 +43,13 @@ async def _execute_import_task(payload: ImportTaskPayload) -> None:
             is_retry=payload.is_retry,
         )
 
-        logger.info(f"Record import task succeeded: record_id={payload.record_id}")
+        logger.info(f"Record import task succeeded: record_id={payload.record_id}, attempt_id={payload.import_attempt_id}")
 
     except Exception as e:
         error_msg = str(e) if str(e) else "Unknown error occurred during import"
         logger.error(
             f"Record import task failed: record_id={payload.record_id}, "
-            f"error={error_msg}"
+            f"attempt_id={payload.import_attempt_id}, error={error_msg}"
         )
         import_params = {
             "type": payload.type,
@@ -78,6 +79,7 @@ async def submit_record_import_task(
     type: RecordType,
     title: str,
     text_splitter: TextSplitter,
+    import_attempt_id: str,
     content: Optional[str] = None,
     file_id: Optional[str] = None,
     url: Optional[str] = None,
@@ -87,6 +89,7 @@ async def submit_record_import_task(
     :return: True if task was enqueued, False if task already running
     """
     payload = ImportTaskPayload(
+        import_attempt_id=import_attempt_id,
         task_type="create",
         collection_id=collection_id,
         record_id=record_id,
@@ -110,6 +113,7 @@ async def submit_record_update_task(
     type: RecordType,
     title: str,
     text_splitter: TextSplitter,
+    import_attempt_id: str,
     content: Optional[str] = None,
     file_id: Optional[str] = None,
     url: Optional[str] = None,
@@ -120,6 +124,7 @@ async def submit_record_update_task(
     :return: True if task was enqueued, False if task already running
     """
     payload = ImportTaskPayload(
+        import_attempt_id=import_attempt_id,
         task_type="update",
         collection_id=collection_id,
         record_id=record_id,
@@ -144,6 +149,7 @@ async def submit_record_retry_task(
     title: str,
     text_splitter: TextSplitter,
     start_stage: ImportStage,
+    import_attempt_id: str,
     content: Optional[str] = None,
     file_id: Optional[str] = None,
     url: Optional[str] = None,
@@ -154,6 +160,7 @@ async def submit_record_retry_task(
     :return: True if task was enqueued, False if task already running
     """
     payload = ImportTaskPayload(
+        import_attempt_id=import_attempt_id,
         task_type="retry",
         collection_id=collection_id,
         record_id=record_id,

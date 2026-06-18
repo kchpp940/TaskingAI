@@ -13,6 +13,7 @@ async def update_import_status(
     processing_stage: Optional[ImportStage] = None,
     error_message: Optional[str] = None,
     import_params: Optional[Dict] = None,
+    import_attempt_id: Optional[str] = None,
 ) -> None:
     """
     Update record import status
@@ -21,6 +22,7 @@ async def update_import_status(
     :param processing_stage: the current processing stage
     :param error_message: the error message if failed
     :param import_params: the import params for retry
+    :param import_attempt_id: the import attempt id
     :return: None
     """
     update_dict = {
@@ -32,6 +34,8 @@ async def update_import_status(
         update_dict["error_message"] = error_message
     if import_params is not None:
         update_dict["import_params"] = json.dumps(import_params)
+    if import_attempt_id is not None:
+        update_dict["import_attempt_id"] = import_attempt_id
 
     async with postgres_pool.get_db_connection() as conn:
         await update_object(

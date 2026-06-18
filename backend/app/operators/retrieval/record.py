@@ -1,5 +1,6 @@
 from typing import Dict, Optional, Tuple, List
 import json
+import uuid
 
 from tkhelper.models.operator.postgres_operator import PostgresModelOperator, ModelEntity
 from tkhelper.error import raise_http_error, ErrorCode, raise_request_validation_error
@@ -267,6 +268,7 @@ class RecordModelOperator(PostgresModelOperator):
         collection = await collection_ops.get(collection_id=collection_id)
 
         new_record_id = Record.generate_random_id()
+        import_attempt_id = uuid.uuid4().hex
 
         import_params = {
             "type": type.value,
@@ -286,6 +288,7 @@ class RecordModelOperator(PostgresModelOperator):
             content=pending_content,
             metadata=metadata,
             import_params=import_params,
+            import_attempt_id=import_attempt_id,
         )
 
         await submit_record_import_task(
@@ -297,6 +300,7 @@ class RecordModelOperator(PostgresModelOperator):
             content=content,
             file_id=file_id,
             url=url,
+            import_attempt_id=import_attempt_id,
         )
 
         record = await self.get(collection_id=collection_id, record_id=new_record_id)
@@ -325,6 +329,7 @@ class RecordModelOperator(PostgresModelOperator):
             or (update_dict.get("content") is not None)
             or (update_dict.get("title") is not None)
         ):
+            import_attempt_id = uuid.uuid4().hex
             new_type = RecordType(update_dict.get("type", record.type))
             new_title = update_dict.get("title", record.title)
             new_content = update_dict.get("content", record.content) if new_type == RecordType.TEXT else None
@@ -346,6 +351,7 @@ class RecordModelOperator(PostgresModelOperator):
                 processing_stage=ImportStage.PENDING,
                 error_message=None,
                 import_params=import_params,
+                import_attempt_id=import_attempt_id,
             )
 
             await submit_record_update_task(
@@ -358,6 +364,7 @@ class RecordModelOperator(PostgresModelOperator):
                 file_id=None,
                 url=new_url,
                 existing_record_chunks=record.num_chunks,
+                import_attempt_id=import_attempt_id,
             )
 
             record = await self.get(collection_id=collection_id, record_id=record_id)
@@ -395,6 +402,7 @@ class RecordModelOperator(PostgresModelOperator):
         if not record.import_params:
             raise_request_validation_error("No import parameters found for retry")
 
+        import_attempt_id = uuid.uuid4().hex
         import_params = record.import_params
         type = RecordType(import_params["type"])
         title = import_params["title"]
@@ -410,6 +418,7 @@ class RecordModelOperator(PostgresModelOperator):
             import_status=ImportStatus.PROCESSING,
             processing_stage=start_stage,
             error_message=None,
+            import_attempt_id=import_attempt_id,
         )
 
         await submit_record_retry_task(
@@ -423,6 +432,7 @@ class RecordModelOperator(PostgresModelOperator):
             file_id=file_id,
             url=url,
             existing_record_chunks=record.num_chunks,
+            import_attempt_id=import_attempt_id,
         )
 
         record = await self.get(collection_id=collection_id, record_id=record_id)

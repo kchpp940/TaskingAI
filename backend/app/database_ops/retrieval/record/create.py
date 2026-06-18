@@ -14,6 +14,7 @@ async def create_record_pending(
     content: str,
     metadata: Dict[str, str],
     import_params: Dict,
+    import_attempt_id: str,
 ) -> None:
     """
     Create record with pending import status
@@ -24,14 +25,15 @@ async def create_record_pending(
     :param content: the record content
     :param metadata: the record metadata
     :param import_params: the original import parameters for retry
+    :param import_attempt_id: unique ID for this import attempt
     :return: None
     """
     async with postgres_pool.get_db_connection() as conn:
         await conn.execute(
             """
             INSERT INTO record (record_id, collection_id, title, type, content, status, metadata, num_chunks, 
-                                import_status, processing_stage, error_message, import_params)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                                import_status, processing_stage, error_message, import_params, import_attempt_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
         """,
             record_id,
             collection.collection_id,
@@ -45,6 +47,7 @@ async def create_record_pending(
             ImportStage.PENDING.value,
             None,
             json.dumps(import_params),
+            import_attempt_id,
         )
 
 

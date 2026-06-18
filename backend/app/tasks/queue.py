@@ -20,6 +20,7 @@ STALE_THRESHOLD_SECONDS = 600
 
 @dataclass
 class ImportTaskPayload:
+    import_attempt_id: str
     task_type: str
     collection_id: str
     record_id: str
@@ -123,6 +124,37 @@ class RecordImportQueue:
         except Exception as e:
             logger.error(f"Failed to mark task as failed for record_id={record_id}: {e}")
 
+    async def _verify_attempt(self, payload: ImportTaskPayload) -> bool:
+        """
+        Verify that the task's import_attempt_id matches the record's current import_attempt_id.
+        If they don't match, the task is stale and should be discarded.
+        """
+        try:
+            from app.database import postgres_pool
+
+            async with postgres_pool.get_db_connection() as conn:
+                row = await conn.fetchrow(
+                    "SELECT import_attempt_id FROM record WHERE record_id = $1",
+                    payload.record_id,
+                )
+
+            if row is None:
+                logger.warning(f"Record not found for attempt verification: record_id={payload.record_id}")
+                return False
+
+            current_attempt_id = row.get("import_attempt_id")
+            if current_attempt_id != payload.import_attempt_id:
+                logger.info(
+                    f"Attempt mismatch for record_id={payload.record_id}: "
+                    f"task_attempt={payload.import_attempt_id}, db_attempt={current_attempt_id}"
+                )
+                return False
+
+            return True
+        except Exception as e:
+            logger.error(f"Failed to verify attempt for record_id={payload.record_id}: {e}")
+            return False
+
     async def _requeue_stale_tasks(self) -> None:
         if redis_conn.redis is None:
             return
@@ -133,7 +165,8 @@ class RecordImportQueue:
             async with postgres_pool.get_db_connection() as conn:
                 rows = await conn.fetch(
                     """
-                    SELECT record_id, collection_id, import_status, processing_stage, import_params, updated_timestamp
+                    SELECT record_id, collection_id, import_status, processing_stage, 
+                           import_params, import_attempt_id, updated_timestamp
                     FROM record
                     WHERE import_status IN ($1, $2)
                     AND updated_timestamp < $3
@@ -164,6 +197,7 @@ class RecordImportQueue:
                     continue
 
                 payload = ImportTaskPayload(
+                    import_attempt_id=row.get("import_attempt_id") or "",
                     task_type="recovery",
                     collection_id=row["collection_id"],
                     record_id=record_id,
@@ -207,6 +241,14 @@ class RecordImportQueue:
                     continue
 
                 try:
+                    if not await self._verify_attempt(payload):
+                        logger.warning(
+                            f"Discarding stale task: record_id={payload.record_id}, "
+                            f"attempt_id={payload.import_attempt_id}"
+                        )
+                        await self.complete(payload.record_id)
+                        continue
+
                     await _execute_import_task(payload)
                     await self.complete(payload.record_id)
                 except Exception as e:
