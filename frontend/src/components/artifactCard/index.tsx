@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { Card, Image, Tag, Button, Space, Typography, Table } from 'antd';
 import {
   FileOutlined,
-  FileJsonOutlined,
+  FileTextOutlined,
   TableOutlined,
   DownloadOutlined,
   EyeOutlined,
@@ -30,7 +30,7 @@ const getTypeIcon = (type: string) => {
     case 'file':
       return <FileOutlined />;
     case 'json':
-      return <FileJsonOutlined />;
+      return <FileTextOutlined />;
     case 'table':
       return <TableOutlined />;
     default:

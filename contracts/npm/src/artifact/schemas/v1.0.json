@@ -1,0 +1,131 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://tasking.ai/schemas/artifact/v1.0.json",
+  "title": "Artifact Protocol",
+  "description": "Shared artifact schema for TaskingAI plugin, backend, and frontend. This is the single source of truth for artifact type definitions, field constraints, and validation rules.",
+  "version": "1.0.0",
+  "type": "object",
+  "definitions": {
+    "ArtifactType": {
+      "type": "string",
+      "enum": ["text", "image", "file", "json", "table"],
+      "description": "The type of the artifact. Only these 5 types are supported across all layers."
+    },
+    "Artifact": {
+      "type": "object",
+      "description": "Standard artifact data transfer object (DTO). All layers must use this exact schema.",
+      "properties": {
+        "type": {
+          "$ref": "#/definitions/ArtifactType",
+          "description": "The type of the artifact."
+        },
+        "mime_type": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-z0-9]+/[a-z0-9.+-]+$",
+          "description": "The MIME type of the artifact. Must be in 'type/subtype' format, lowercase."
+        },
+        "title": {
+          "type": ["string", "null"],
+          "maxLength": 128,
+          "description": "The display title of the artifact. Will be truncated if exceeds max length."
+        },
+        "content": {
+          "type": ["string", "null"],
+          "description": "The text content of the artifact (for text, json, table, etc.). Will be truncated if exceeds max content length."
+        },
+        "preview_url": {
+          "type": ["string", "null"],
+          "format": "uri",
+          "description": "The preview image URL of the artifact."
+        },
+        "download_url": {
+          "type": ["string", "null"],
+          "format": "uri",
+          "description": "The download URL of the artifact."
+        },
+        "size": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "The size of the artifact in bytes."
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": true,
+          "default": {},
+          "description": "Additional metadata for the artifact."
+        }
+      },
+      "required": ["type", "mime_type"],
+      "additionalProperties": false
+    },
+    "ArtifactList": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Artifact"
+      },
+      "maxItems": 10,
+      "description": "List of artifacts. Maximum 10 artifacts per tool output."
+    }
+  },
+  "properties": {
+    "constants": {
+      "type": "object",
+      "properties": {
+        "MAX_ARTIFACT_CONTENT_LENGTH": {
+          "type": "integer",
+          "const": 4096,
+          "description": "Maximum length for artifact content in characters. Content exceeding this will be truncated."
+        },
+        "MAX_ARTIFACT_TITLE_LENGTH": {
+          "type": "integer",
+          "const": 128,
+          "description": "Maximum length for artifact title in characters. Title exceeding this will be truncated."
+        },
+        "MAX_ARTIFACTS_PER_TOOL": {
+          "type": "integer",
+          "const": 10,
+          "description": "Maximum number of artifacts per tool output. Extra artifacts will be dropped."
+        }
+      },
+      "required": ["MAX_ARTIFACT_CONTENT_LENGTH", "MAX_ARTIFACT_TITLE_LENGTH", "MAX_ARTIFACTS_PER_TOOL"]
+    },
+    "defaultMimeTypes": {
+      "type": "object",
+      "properties": {
+        "text": { "type": "string", "const": "text/plain" },
+        "image": { "type": "string", "const": "image/png" },
+        "file": { "type": "string", "const": "application/octet-stream" },
+        "json": { "type": "string", "const": "application/json" },
+        "table": { "type": "string", "const": "application/json" }
+      },
+      "description": "Default MIME types for each artifact type when not explicitly provided."
+    },
+    "mimeTypeMap": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "Mapping from file extension to MIME type for URL-based MIME type guessing.",
+      "properties": {
+        "png": "image/png",
+        "jpg": "image/jpeg",
+        "jpeg": "image/jpeg",
+        "gif": "image/gif",
+        "webp": "image/webp",
+        "svg": "image/svg+xml",
+        "pdf": "application/pdf",
+        "txt": "text/plain",
+        "md": "text/markdown",
+        "html": "text/html",
+        "json": "application/json",
+        "csv": "text/csv",
+        "mp3": "audio/mpeg",
+        "wav": "audio/wav",
+        "mp4": "video/mp4",
+        "webm": "video/webm",
+        "zip": "application/zip"
+      }
+    }
+  },
+  "required": ["constants", "defaultMimeTypes", "mimeTypeMap"]
+}

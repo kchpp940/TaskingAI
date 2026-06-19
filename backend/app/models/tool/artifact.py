@@ -109,11 +109,11 @@ def _default_mime_type_for_type(artifact_type: str) -> str:
     Source: contracts/artifact/v1.0.json#/properties/defaultMimeTypes
     """
     type_map = {
-        "text": "{'type': 'string', 'const': 'text/plain'}",
-        "image": "{'type': 'string', 'const': 'image/png'}",
-        "file": "{'type': 'string', 'const': 'application/octet-stream'}",
-        "json": "{'type': 'string', 'const': 'application/json'}",
-        "table": "{'type': 'string', 'const': 'application/json'}",
+        "text": "text/plain",
+        "image": "image/png",
+        "file": "application/octet-stream",
+        "json": "application/json",
+        "table": "application/json",
     }
     return type_map.get(artifact_type, "application/octet-stream")
 
