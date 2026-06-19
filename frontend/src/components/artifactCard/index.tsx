@@ -1,11 +1,9 @@
-import React from 'react';
-import { Card, Image, Tag, Button, Space, Typography } from 'antd';
+import React, { useMemo } from 'react';
+import { Card, Image, Tag, Button, Space, Typography, Table } from 'antd';
 import {
   FileOutlined,
-  LinkOutlined,
-  CodeOutlined,
-  SoundOutlined,
-  VideoCameraOutlined,
+  FileJsonOutlined,
+  TableOutlined,
   DownloadOutlined,
   EyeOutlined,
 } from '@ant-design/icons';
@@ -31,14 +29,10 @@ const getTypeIcon = (type: string) => {
       return <EyeOutlined />;
     case 'file':
       return <FileOutlined />;
-    case 'link':
-      return <LinkOutlined />;
-    case 'code':
-      return <CodeOutlined />;
-    case 'audio':
-      return <SoundOutlined />;
-    case 'video':
-      return <VideoCameraOutlined />;
+    case 'json':
+      return <FileJsonOutlined />;
+    case 'table':
+      return <TableOutlined />;
     default:
       return <FileOutlined />;
   }
@@ -50,14 +44,10 @@ const getTypeColor = (type: string): string => {
       return 'green';
     case 'file':
       return 'blue';
-    case 'link':
-      return 'purple';
-    case 'code':
+    case 'json':
       return 'orange';
-    case 'audio':
-      return 'cyan';
-    case 'video':
-      return 'magenta';
+    case 'table':
+      return 'purple';
     default:
       return 'default';
   }
@@ -65,6 +55,49 @@ const getTypeColor = (type: string): string => {
 
 const ArtifactCard: React.FC<ArtifactCardProps> = ({ artifact }) => {
   const { type, mime_type, title, content, preview_url, download_url, size } = artifact;
+
+  const parsedJson = useMemo(() => {
+    if (type === 'json' && content) {
+      try {
+        return JSON.parse(content);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }, [type, content]);
+
+  const tableColumns = useMemo(() => {
+    if (type === 'table' && content) {
+      try {
+        const data = JSON.parse(content);
+        if (Array.isArray(data) && data.length > 0) {
+          const firstRow = data[0];
+          return Object.keys(firstRow).map((key) => ({
+            title: key,
+            dataIndex: key,
+            key,
+            ellipsis: true,
+          }));
+        }
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  }, [type, content]);
+
+  const tableData = useMemo(() => {
+    if (type === 'table' && content) {
+      try {
+        const data = JSON.parse(content);
+        return Array.isArray(data) ? data.slice(0, 20) : [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  }, [type, content]);
 
   const renderContent = () => {
     switch (type) {
@@ -89,38 +122,25 @@ const ArtifactCard: React.FC<ArtifactCardProps> = ({ artifact }) => {
           </Paragraph>
         );
 
-      case 'code':
+      case 'json':
         return (
-          <pre className={styles.codeContent}>
-            <code>{content || ''}</code>
+          <pre className={styles.jsonContent}>
+            <code>
+              {parsedJson ? JSON.stringify(parsedJson, null, 2) : content || ''}
+            </code>
           </pre>
         );
 
-      case 'link':
+      case 'table':
         return (
-          <div className={styles.linkContent}>
-            <LinkOutlined className={styles.linkIcon} />
-            <Text type="secondary" ellipsis>
-              {download_url || ''}
-            </Text>
-          </div>
-        );
-
-      case 'audio':
-        return (
-          <div className={styles.audioContent}>
-            {download_url && <audio src={download_url} controls className={styles.audio} />}
-          </div>
-        );
-
-      case 'video':
-        return (
-          <div className={styles.videoContent}>
-            {download_url && (
-              <video src={download_url} controls className={styles.video}>
-                Your browser does not support the video tag.
-              </video>
-            )}
+          <div className={styles.tableContent}>
+            <Table
+              columns={tableColumns}
+              dataSource={tableData}
+              size="small"
+              pagination={false}
+              scroll={{ x: true, y: 200 }}
+            />
           </div>
         );
 

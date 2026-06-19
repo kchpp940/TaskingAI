@@ -136,5 +136,5 @@ async def api_execute(
         raise_http_error(ErrorCode.INTERNAL_SERVER_ERROR, str(e))
 
     return RunToolResponse(
-        data=plugin_output,
+        data=plugin_output.normalize(),
     )

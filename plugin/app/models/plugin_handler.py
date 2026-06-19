@@ -1,7 +1,10 @@
 from abc import ABC, abstractmethod
 from typing import Dict, Optional, List
 from app.models import BundleCredentials
-from app.models.artifact import Artifact, convert_legacy_data_to_artifacts
+from app.models.artifact import (
+    Artifact,
+    normalize_and_summarize_artifacts,
+)
 from pydantic import BaseModel, Field
 import logging
 
@@ -18,8 +21,12 @@ class PluginOutput(BaseModel):
 
     @classmethod
     def from_legacy(cls, status: int, data: Dict) -> "PluginOutput":
-        artifacts = convert_legacy_data_to_artifacts(data)
+        artifacts = normalize_and_summarize_artifacts(artifacts=None, legacy_data=data)
         return cls(status=status, data=data, artifacts=artifacts)
+
+    def normalize(self) -> "PluginOutput":
+        self.artifacts = normalize_and_summarize_artifacts(artifacts=self.artifacts, legacy_data=None)
+        return self
 
 
 class PluginInput(BaseModel):

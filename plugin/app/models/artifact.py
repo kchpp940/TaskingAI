@@ -1,23 +1,29 @@
 from enum import Enum
 from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 __all__ = [
     "ArtifactType",
     "Artifact",
     "PluginOutputWithArtifacts",
     "convert_legacy_data_to_artifacts",
+    "summarize_artifact",
+    "MAX_ARTIFACT_CONTENT_LENGTH",
+    "MAX_ARTIFACT_TITLE_LENGTH",
+    "MAX_ARTIFACTS_PER_TOOL",
 ]
+
+MAX_ARTIFACT_CONTENT_LENGTH = 4096
+MAX_ARTIFACT_TITLE_LENGTH = 128
+MAX_ARTIFACTS_PER_TOOL = 10
 
 
 class ArtifactType(str, Enum):
     TEXT = "text"
     IMAGE = "image"
     FILE = "file"
-    LINK = "link"
-    CODE = "code"
-    AUDIO = "audio"
-    VIDEO = "video"
+    JSON = "json"
+    TABLE = "table"
 
 
 class Artifact(BaseModel):
@@ -32,11 +38,12 @@ class Artifact(BaseModel):
     )
     title: Optional[str] = Field(
         None,
+        max_length=MAX_ARTIFACT_TITLE_LENGTH,
         description="The display title of the artifact.",
     )
     content: Optional[str] = Field(
         None,
-        description="The text content of the artifact (for text, code, etc.).",
+        description="The text content of the artifact (for text, json, table, etc.).",
     )
     preview_url: Optional[str] = Field(
         None,
@@ -55,6 +62,13 @@ class Artifact(BaseModel):
         default_factory=dict,
         description="Additional metadata for the artifact.",
     )
+
+    @field_validator("title")
+    @classmethod
+    def trim_title(cls, v: Optional[str]) -> Optional[str]:
+        if v and len(v) > MAX_ARTIFACT_TITLE_LENGTH:
+            return v[: MAX_ARTIFACT_TITLE_LENGTH - 3] + "..."
+        return v
 
 
 class PluginOutputWithArtifacts(BaseModel):
@@ -118,10 +132,6 @@ def convert_legacy_data_to_artifacts(data: Dict) -> List[Artifact]:
         artifact_type = ArtifactType.FILE
         if mime_type.startswith("image/"):
             artifact_type = ArtifactType.IMAGE
-        elif mime_type.startswith("audio/"):
-            artifact_type = ArtifactType.AUDIO
-        elif mime_type.startswith("video/"):
-            artifact_type = ArtifactType.VIDEO
         elif mime_type.startswith("text/"):
             artifact_type = ArtifactType.TEXT
 
@@ -164,14 +174,40 @@ def convert_legacy_data_to_artifacts(data: Dict) -> List[Artifact]:
             )
         )
 
+    elif "json" in data and isinstance(data["json"], (dict, list)):
+        import json
+        json_str = json.dumps(data["json"], ensure_ascii=False)
+        artifacts.append(
+            Artifact(
+                type=ArtifactType.JSON,
+                mime_type="application/json",
+                title=data.get("title") or "JSON Data",
+                content=json_str,
+                size=len(json_str.encode("utf-8")),
+                metadata={k: v for k, v in data.items() if k not in {"json", "title"}},
+            )
+        )
+
+    elif "table" in data and isinstance(data["table"], list):
+        import json
+        table_str = json.dumps(data["table"], ensure_ascii=False)
+        artifacts.append(
+            Artifact(
+                type=ArtifactType.TABLE,
+                mime_type="application/json",
+                title=data.get("title") or "Table Data",
+                content=table_str,
+                size=len(table_str.encode("utf-8")),
+                metadata={k: v for k, v in data.items() if k not in {"table", "title"}},
+            )
+        )
+
     elif "content" in data and isinstance(data["content"], str):
         content = data["content"]
         mime_type = _guess_mime_type_from_content(content)
         artifact_type = ArtifactType.TEXT
         if mime_type == "application/json":
-            artifact_type = ArtifactType.CODE
-        elif data.get("type") == "code":
-            artifact_type = ArtifactType.CODE
+            artifact_type = ArtifactType.JSON
 
         artifacts.append(
             Artifact(
@@ -198,3 +234,41 @@ def convert_legacy_data_to_artifacts(data: Dict) -> List[Artifact]:
         )
 
     return artifacts
+
+
+def summarize_artifact(artifact: Artifact, max_content_length: int = MAX_ARTIFACT_CONTENT_LENGTH) -> Artifact:
+    if artifact.content and len(artifact.content) > max_content_length:
+        truncated = artifact.content[:max_content_length]
+        artifact.content = truncated + "..."
+        if artifact.size is None:
+            artifact.size = len(artifact.content.encode("utf-8"))
+
+    if artifact.title and len(artifact.title) > MAX_ARTIFACT_TITLE_LENGTH:
+        artifact.title = artifact.title[: MAX_ARTIFACT_TITLE_LENGTH - 3] + "..."
+
+    return artifact
+
+
+def normalize_and_summarize_artifacts(
+    artifacts: Optional[List[Artifact]],
+    legacy_data: Optional[Dict] = None,
+) -> List[Artifact]:
+    result: List[Artifact] = []
+
+    if artifacts:
+        for artifact in artifacts:
+            try:
+                summarize_artifact(artifact)
+                result.append(artifact)
+            except Exception:
+                continue
+
+    if not result and legacy_data:
+        result = convert_legacy_data_to_artifacts(legacy_data)
+        for artifact in result:
+            summarize_artifact(artifact)
+
+    if len(result) > MAX_ARTIFACTS_PER_TOOL:
+        result = result[:MAX_ARTIFACTS_PER_TOOL]
+
+    return result

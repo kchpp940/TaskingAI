@@ -7,7 +7,7 @@ __all__ = [
     "Artifact",
     "normalize_artifact",
     "summarize_artifact",
-    "convert_legacy_tool_data_to_artifacts",
+    "parse_and_normalize_artifacts",
     "MAX_ARTIFACT_CONTENT_LENGTH",
     "MAX_ARTIFACT_TITLE_LENGTH",
     "MAX_ARTIFACTS_PER_TOOL",
@@ -22,10 +22,8 @@ class ArtifactType(str, Enum):
     TEXT = "text"
     IMAGE = "image"
     FILE = "file"
-    LINK = "link"
-    CODE = "code"
-    AUDIO = "audio"
-    VIDEO = "video"
+    JSON = "json"
+    TABLE = "table"
 
 
 class Artifact(BaseModel):
@@ -46,7 +44,7 @@ class Artifact(BaseModel):
     )
     content: Optional[str] = Field(
         None,
-        description="The text content of the artifact.",
+        description="The text content of the artifact (for text, json, table, etc.).",
     )
     preview_url: Optional[str] = Field(
         None,
@@ -81,6 +79,17 @@ class Artifact(BaseModel):
         return v
 
 
+def _default_mime_type_for_type(artifact_type: str) -> str:
+    type_map = {
+        "text": "text/plain",
+        "image": "image/png",
+        "file": "application/octet-stream",
+        "json": "application/json",
+        "table": "application/json",
+    }
+    return type_map.get(artifact_type, "application/octet-stream")
+
+
 def normalize_artifact(artifact: Dict[str, Any]) -> Artifact:
     if "type" not in artifact:
         raise ValueError("Artifact type is required")
@@ -105,157 +114,8 @@ def summarize_artifact(artifact: Artifact, max_content_length: int = MAX_ARTIFAC
     return artifact
 
 
-def _default_mime_type_for_type(artifact_type: str) -> str:
-    type_map = {
-        "text": "text/plain",
-        "image": "image/png",
-        "file": "application/octet-stream",
-        "link": "text/html",
-        "code": "text/plain",
-        "audio": "audio/mpeg",
-        "video": "video/mp4",
-    }
-    return type_map.get(artifact_type, "application/octet-stream")
-
-
-_MIME_TYPE_MAP = {
-    "png": "image/png",
-    "jpg": "image/jpeg",
-    "jpeg": "image/jpeg",
-    "gif": "image/gif",
-    "webp": "image/webp",
-    "svg": "image/svg+xml",
-    "pdf": "application/pdf",
-    "txt": "text/plain",
-    "md": "text/markdown",
-    "html": "text/html",
-    "json": "application/json",
-    "csv": "text/csv",
-    "mp3": "audio/mpeg",
-    "wav": "audio/wav",
-    "mp4": "video/mp4",
-    "webm": "video/webm",
-    "zip": "application/zip",
-}
-
-
-def _guess_mime_type_from_url(url: str) -> str:
-    lower_url = url.lower()
-    for ext, mime in _MIME_TYPE_MAP.items():
-        if f".{ext}" in lower_url:
-            return mime
-    return "application/octet-stream"
-
-
-def _guess_mime_type_from_content(content: str) -> str:
-    try:
-        import json
-
-        json.loads(content)
-        return "application/json"
-    except Exception:
-        pass
-    if content.strip().startswith("<!DOCTYPE") or content.strip().startswith("<html"):
-        return "text/html"
-    if content.strip().startswith("```"):
-        return "text/markdown"
-    return "text/plain"
-
-
-def convert_legacy_tool_data_to_artifacts(data: Dict[str, Any]) -> List[Artifact]:
-    artifacts: List[Artifact] = []
-
-    if "url" in data and isinstance(data["url"], str):
-        url = data["url"]
-        mime_type = _guess_mime_type_from_url(url)
-        artifact_type = ArtifactType.FILE
-        if mime_type.startswith("image/"):
-            artifact_type = ArtifactType.IMAGE
-        elif mime_type.startswith("audio/"):
-            artifact_type = ArtifactType.AUDIO
-        elif mime_type.startswith("video/"):
-            artifact_type = ArtifactType.VIDEO
-        elif mime_type.startswith("text/"):
-            artifact_type = ArtifactType.TEXT
-
-        artifacts.append(
-            Artifact(
-                type=artifact_type,
-                mime_type=mime_type,
-                title=data.get("title") or data.get("name") or "File",
-                download_url=url,
-                preview_url=url if artifact_type == ArtifactType.IMAGE else None,
-                size=data.get("size"),
-                metadata={k: v for k, v in data.items() if k not in {"url", "title", "name", "size"}},
-            )
-        )
-
-    elif "image_url" in data and isinstance(data["image_url"], str):
-        url = data["image_url"]
-        artifacts.append(
-            Artifact(
-                type=ArtifactType.IMAGE,
-                mime_type=_guess_mime_type_from_url(url),
-                title=data.get("title") or "Image",
-                download_url=url,
-                preview_url=url,
-                size=data.get("size"),
-                metadata={k: v for k, v in data.items() if k not in {"image_url", "title", "size"}},
-            )
-        )
-
-    elif "file_url" in data and isinstance(data["file_url"], str):
-        url = data["file_url"]
-        artifacts.append(
-            Artifact(
-                type=ArtifactType.FILE,
-                mime_type=_guess_mime_type_from_url(url),
-                title=data.get("title") or data.get("name") or "File",
-                download_url=url,
-                size=data.get("size"),
-                metadata={k: v for k, v in data.items() if k not in {"file_url", "title", "name", "size"}},
-            )
-        )
-
-    elif "content" in data and isinstance(data["content"], str):
-        content = data["content"]
-        mime_type = _guess_mime_type_from_content(content)
-        artifact_type = ArtifactType.TEXT
-        if mime_type == "application/json":
-            artifact_type = ArtifactType.CODE
-        elif data.get("type") == "code":
-            artifact_type = ArtifactType.CODE
-
-        artifacts.append(
-            Artifact(
-                type=artifact_type,
-                mime_type=mime_type,
-                title=data.get("title") or "Content",
-                content=content,
-                size=len(content.encode("utf-8")),
-                metadata={k: v for k, v in data.items() if k not in {"content", "title", "type"}},
-            )
-        )
-
-    elif "text" in data and isinstance(data["text"], str):
-        text = data["text"]
-        artifacts.append(
-            Artifact(
-                type=ArtifactType.TEXT,
-                mime_type="text/plain",
-                title=data.get("title") or "Text",
-                content=text,
-                size=len(text.encode("utf-8")),
-                metadata={k: v for k, v in data.items() if k not in {"text", "title"}},
-            )
-        )
-
-    return artifacts
-
-
 def parse_and_normalize_artifacts(
     artifacts_data: Optional[List[Dict[str, Any]]],
-    legacy_data: Optional[Dict[str, Any]] = None,
 ) -> List[Artifact]:
     result: List[Artifact] = []
 
@@ -267,11 +127,6 @@ def parse_and_normalize_artifacts(
                 result.append(artifact)
             except Exception:
                 continue
-
-    if not result and legacy_data:
-        result = convert_legacy_tool_data_to_artifacts(legacy_data)
-        for artifact in result:
-            summarize_artifact(artifact)
 
     if len(result) > MAX_ARTIFACTS_PER_TOOL:
         result = result[:MAX_ARTIFACTS_PER_TOOL]

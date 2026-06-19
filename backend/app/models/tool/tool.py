@@ -112,7 +112,6 @@ class ToolOutput(BaseModel):
     ) -> "ToolOutput":
         artifacts = parse_and_normalize_artifacts(
             artifacts_data=artifacts_data,
-            legacy_data=data if isinstance(data, Dict) else None,
         )
         return cls(
             type=type,

@@ -1,4 +1,4 @@
-export type ArtifactType = 'text' | 'image' | 'file' | 'link' | 'code' | 'audio' | 'video';
+export type ArtifactType = 'text' | 'image' | 'file' | 'json' | 'table';
 
 export interface Artifact {
   type: ArtifactType;
