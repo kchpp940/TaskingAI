@@ -94,5 +94,17 @@ class Config:
 
         self.PATH_TO_VOLUME = load_str_env("PATH_TO_VOLUME")
 
+        # redis (optional, for embedding cache)
+        self.REDIS_URL = load_str_env("REDIS_URL")
+
+        # embedding cache
+        self.ENABLE_EMBEDDING_CACHE = load_str_env("ENABLE_EMBEDDING_CACHE", required=False)
+        if self.ENABLE_EMBEDDING_CACHE is None:
+            self.ENABLE_EMBEDDING_CACHE = "true"
+        self.ENABLE_EMBEDDING_CACHE = self.ENABLE_EMBEDDING_CACHE.lower() == "true"
+        self.EMBEDDING_CACHE_TTL = load_int_env("EMBEDDING_CACHE_TTL", required=False)
+        if self.EMBEDDING_CACHE_TTL is None:
+            self.EMBEDDING_CACHE_TTL = 3600 * 24 * 7
+
 
 CONFIG = Config()

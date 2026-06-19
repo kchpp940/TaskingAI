@@ -1,6 +1,7 @@
-from tkhelper.database.redis import RedisConnection
 from typing import Optional, Type
 from .entity import ModelEntity
+from ..cache import CacheHelper, CacheConfig, CacheStatus, KeyNamespace, CacheCategory
+from ..cache.connection import EnhancedRedisConnection
 import logging
 
 logger = logging.getLogger(__name__)
@@ -12,76 +13,115 @@ class RedisOperator(object):
     def __init__(
         self,
         entity_class: Type[ModelEntity],
-        redis_conn: RedisConnection = None,
+        redis_conn=None,
         redis_key_postfix: str = None,
         expire: int = 3600 * 4,
+        namespace: str = "backend",
+        module: str = "entity",
     ):
         self.entity_class = entity_class
-        self.redis_conn = redis_conn
         self.redis_key_postfix = redis_key_postfix
         self.expire = expire
+        self.namespace = namespace
+        self.module = module
+        self._cache_helper: Optional[CacheHelper] = None
 
-    # --- redis ---
+        if redis_conn is None:
+            self.redis_conn = None
+        elif isinstance(redis_conn, EnhancedRedisConnection):
+            self.redis_conn = redis_conn
+            self._cache_helper = CacheHelper(
+                redis_conn=redis_conn,
+                config=CacheConfig(ttl=expire),
+                namespace=f"{namespace}:{module}",
+            )
+        else:
+            self.redis_conn = redis_conn
+            self._cache_helper = None
 
-    def __key(self, postfix: str = None, **kwargs) -> str:
-        """Generate a Redis key based on the object name, primary key fields, and an optional postfix."""
-        # Start with the object name
+    def _build_key(self, postfix: str = None, **kwargs) -> str:
         key_parts = [self.entity_class.object_name()]
 
-        # Add the primary key components in the specified order
         for field in self.entity_class.primary_key_fields():
             if field in kwargs:
                 key_parts.append(str(kwargs[field]))
             else:
                 raise ValueError(f"Missing value for primary key field: {field}")
 
-        # If a postfix is provided, append it
         if postfix:
             key_parts.append(postfix)
 
-        # Join all parts with a colon
         return ":".join(key_parts)
 
-    async def get(self, **kwargs) -> Optional[ModelEntity]:
-        if not self.redis_conn:
+    def _deserialize_entity(self, data: dict) -> Optional[ModelEntity]:
+        try:
+            return self.entity_class.build(data)
+        except Exception as e:
+            logger.error(f"Error building entity from Redis data: {e}")
             return None
-        key = self.__key(self.redis_key_postfix, **kwargs)
-        data = await self.redis_conn.get_object(key)
-        if data:
-            try:
-                return self.entity_class.build(data)
-            except Exception as e:
-                logger.error(f"Error building entity from Redis data: {e}")
-                await self.redis_conn.pop(key)
-        return None
+
+    async def get(self, **kwargs) -> Optional[ModelEntity]:
+        if self.redis_conn is None:
+            return None
+
+        key = self._build_key(self.redis_key_postfix, **kwargs)
+
+        if self._cache_helper:
+            result = await self._cache_helper.get(key)
+            if result.hit and result.value:
+                entity = self._deserialize_entity(result.value)
+                if entity:
+                    return entity
+                else:
+                    await self._cache_helper.delete(key)
+            return None
+        else:
+            data = await self.redis_conn.get_object(key)
+            if data:
+                entity = self._deserialize_entity(data)
+                if entity:
+                    return entity
+                else:
+                    await self.redis_conn.pop(key)
+            return None
 
     async def set(self, entity: ModelEntity):
-        if not self.redis_conn:
+        if self.redis_conn is None:
             return
 
-        # Extract primary key fields and their values from entity
         pk_fields = self.entity_class.primary_key_fields()
         pk_values = {field: getattr(entity, field) for field in pk_fields}
+        key = self._build_key(**pk_values, postfix=self.redis_key_postfix)
+        entity_dict = entity.to_redis_dict()
 
-        # Generate the Redis key using primary key values
-        key = self.__key(**pk_values, postfix=self.redis_key_postfix)
-
-        # Convert entity to a dictionary suitable for Redis (assuming such a method exists)
-        entity_dict = entity.to_redis_dict()  # This method depends on the actual implementation of ModelEntity
-
-        # Set the object in Redis with the generated key and expiration
-        await self.redis_conn.set_object(key, entity_dict, self.expire)
+        if self._cache_helper:
+            await self._cache_helper.set(key, entity_dict, ttl=self.expire)
+        else:
+            await self.redis_conn.set_object(key, entity_dict, self.expire)
 
     async def pop(self, entity: ModelEntity):
-        if not self.redis_conn:
+        if self.redis_conn is None:
             return
 
-        # Extract primary key fields and their values from entity
         pk_fields = self.entity_class.primary_key_fields()
         pk_values = {field: getattr(entity, field) for field in pk_fields}
+        key = self._build_key(**pk_values, postfix=self.redis_key_postfix)
 
-        # Generate the Redis key using primary key values
-        key = self.__key(**pk_values, postfix=self.redis_key_postfix)
+        if self._cache_helper:
+            await self._cache_helper.delete(key)
+        else:
+            await self.redis_conn.pop(key)
 
-        # Remove the object from Redis using the generated key
-        await self.redis_conn.pop(key)
+    async def invalidate(self, **kwargs):
+        if self.redis_conn is None:
+            return
+
+        key = self._build_key(self.redis_key_postfix, **kwargs)
+
+        if self._cache_helper:
+            await self._cache_helper.delete(key)
+        else:
+            await self.redis_conn.pop(key)
+
+    def get_cache_helper(self) -> Optional[CacheHelper]:
+        return self._cache_helper

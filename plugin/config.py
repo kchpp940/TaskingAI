@@ -13,6 +13,9 @@ default_env_values = {
     "PATH_TO_VOLUME": "/data",
     "DEFAULT_LANG": "en",
     "INCLUDE_FILE_CATEGORY_IN_STORAGE_PATH": 1,
+    "REDIS_URL": "",
+    "ARTIFACT_CACHE_TTL": 86400,
+    "ENABLE_ARTIFACT_CACHE": 1,
 }
 
 
@@ -115,6 +118,11 @@ class Config:
             self.HOST_URL = load_str_env("HOST_URL", required=True)
         else:
             raise Exception("No image storage service specified")
+
+        # Redis / artifact cache
+        self.REDIS_URL = load_str_env("REDIS_URL", required=False)
+        self.ARTIFACT_CACHE_TTL = load_int_env("ARTIFACT_CACHE_TTL", required=False)
+        self.ENABLE_ARTIFACT_CACHE = bool(load_int_env("ENABLE_ARTIFACT_CACHE", required=False))
 
 
 CONFIG = Config()
