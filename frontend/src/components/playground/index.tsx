@@ -1,5 +1,5 @@
 import styles from './playground.module.scss'
-import { useState, useEffect, useRef, } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Select, Button, Checkbox, Input, Drawer, Spin, Modal, Collapse, Space, Upload, Image } from 'antd'
 import { PlusOutlined, RightOutlined, LoadingOutlined, SearchOutlined, EyeOutlined } from '@ant-design/icons';
 import PlayGroundImg from '@/assets/img/selectAssistantImg.svg?react'
@@ -13,7 +13,7 @@ import PlaygroundModel from '../playgroundModel/index.tsx';
 import CopyOutlined from '../../assets/img/copyIcon.svg?react'
 import ModelModal from '../modelModal/index'
 import ErrorIcon from '../../assets/img/errorIcon.svg?react'
-import { getModelsList } from '../../axios/models.ts'
+import { getModelsList, evaluateModelCapabilities } from '../../axios/models.ts'
 import CreateCollection from '../createCollection/index.tsx';
 import ModalSettingIcon from '../../assets/img/modalSettingIcon.svg?react'
 import { formatTimestamp, getFirstMethodAndEndpoint } from '@/utils/util'
@@ -21,6 +21,7 @@ import ModalTable from '../modalTable/index'
 import { commonDataType } from '@/constant/assistant.ts'
 import LoadingAnim from '../../assets/img/loadingAnim.svg?react'
 import ApiErrorResponse, { ChildRefType } from '../../constant/index.ts'
+import type { CapabilityRequirement, CapabilityEvaluationResultItem, RecordType } from '@/constant/index.ts'
 import ChatIcon from '../../assets/img/chatIcon.svg?react'
 import { getActionsList, createActions } from '../../axios/actions.ts'
 import { getRetrievalList } from '../../axios/retrieval.ts';
@@ -78,15 +79,17 @@ function Playground() {
     const [retrievalList, setRetrievalList] = useState<any[]>([])
     const [listChats, setListChats] = useState<any[]>([])
     const [OpenDrawer, setOpenDrawer] = useState(false)
-    const [options, setOptions] = useState([])
+    const [options, setOptions] = useState<RecordType[]>([])
     const [memoryValue, setMemoryValue] = useState('zero')
     const [recordsSelected, setRecordsSelected] = useState<string[]>([])
     const childRef = useRef<ChildRefType | null>(null);
     const [modelLimit, setModelLimit] = useState(20)
     const [modalTableOpen, setModalTableOpen] = useState(false)
     const [selectedModelRows, setSelectedRows] = useState<any[]>([])
+    const [selectedModelRowInfos, setSelectedModelRowInfos] = useState<any[]>([])
     const [originalModelData, setOriginalModelData] = useState<any[]>()
     const [modelOne, setModelOne] = useState(false);
+    const [_modelEvaluations, setModelEvaluations] = useState<Record<string, CapabilityEvaluationResultItem>>({})
     const [OpenActionDrawer, setOpenActionDrawer] = useState(false)
     const [sendButtonLoading, setSendButtonLoading] = useState(false)
     const [generateButtonLoading, setGenerateButtonLoading] = useState(false)
@@ -462,11 +465,23 @@ function Playground() {
             toast.error(message)
         }
     }
+    const buildAssistantCapabilityRequirement = (): CapabilityRequirement => {
+        const hasTools = selectedActionsRows?.some((item: any) => item && item.value) || false
+        const hasRetrievals = selectedRetrievalRows?.some((item: any) => item && item.collection_id) || false
+        const retrievalUsesFunctionCall = retrievalConfig === 'function_call'
+        return {
+            streaming: true,
+            function_call: hasTools || (hasRetrievals && retrievalUsesFunctionCall),
+            vision: false,
+            response_format: undefined,
+        }
+    }
+
     const fetchModelsList = async (params: Record<string, any>) => {
 
         try {
             const res: any = await getModelsList(params, 'chat_completion')
-            const data = res.data.map((item: any) => {
+            const data: RecordType[] = res.data.map((item: any) => {
                 return {
                     ...item,
                     key: item.model_id
@@ -474,6 +489,24 @@ function Playground() {
             })
             setOptions(data)
             setHasModelMore(res.has_more)
+            if (OpenDrawer) {
+                const requirement = buildAssistantCapabilityRequirement()
+                try {
+                    const modelIds = data.map(m => m.model_id)
+                    const evalRes = await evaluateModelCapabilities(requirement, modelIds)
+                    const evalData: CapabilityEvaluationResultItem[] = evalRes.data || []
+                    const map: Record<string, CapabilityEvaluationResultItem> = {}
+                    evalData.forEach(e => { map[e.model_id] = e })
+                    setModelEvaluations(map)
+                    const enriched: RecordType[] = data.map(m => ({
+                        ...m,
+                        _evaluation: map[m.model_id] || undefined,
+                    }))
+                    setOptions(enriched)
+                } catch (e) {
+                    console.error('Capability evaluation failed:', e)
+                }
+            }
         } catch (error) {
             console.log(error)
             const apiResponse = error as ApiErrorResponse
@@ -996,6 +1029,15 @@ function Playground() {
         setDrawerName(value)
     }
     const handleModalCloseConfirm = () => {
+        if (selectedModelRowInfos?.length > 0) {
+            const selected = selectedModelRowInfos[0] as RecordType
+            const evalItem = selected?._evaluation || _modelEvaluations[selected?.model_id]
+            if (evalItem && !evalItem.is_compatible && evalItem.incompatibility_reasons?.length > 0) {
+                const first = evalItem.incompatibility_reasons[0]
+                toast.error(first.reason, { autoClose: 10000 })
+                return
+            }
+        }
         if (selectedModelRows) {
             let str = selectedModelRows[0];
             let index = str.lastIndexOf('-');
@@ -1116,8 +1158,7 @@ function Playground() {
     const handleRecordsSelected = (_value: any[], selectedRows: any[]) => {
         const tag = selectedRows.map(item => (item.name + '-' + item.model_id))
         setSelectedRows(tag)
-        // setOriginalModelData(tag)
-        // setModelName(selectedRows.map(item => item.name))
+        setSelectedModelRowInfos(selectedRows)
     }
     const handleRecordsAssistantSelected = (_value: string[], selectedRows: any[]) => {
         setRecordsSelected(selectedRows)

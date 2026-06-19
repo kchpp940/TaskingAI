@@ -3,7 +3,7 @@ import { fetchModelsData, fetchRetrievalData, fetchActionData } from '../../Redu
 import { useDispatch, useSelector } from 'react-redux';
 import { PlusOutlined } from '@ant-design/icons';
 import { getAssistantsList, createAssistant, deleteAssistant, updateAssistant } from '../../axios/assistant.ts'
-import { getModelsList } from '../../axios/models.ts'
+import { getModelsList, evaluateModelCapabilities } from '../../axios/models.ts'
 import { useEffect, useState, useRef } from 'react'
 import ModelModal from '../modelModal/index'
 import { fetchPluginData } from '../../Redux/actions';
@@ -26,6 +26,7 @@ import closeIcon from '../../assets/img/x-close.svg'
 import { useNavigate } from 'react-router-dom';
 import { ChildRefType } from '../../constant/index.ts'
 import ApiErrorResponse from '@/constant/index.ts'
+import type { CapabilityRequirement, CapabilityEvaluationResultItem, RecordType } from '@/constant/index.ts'
 import ActionDrawer from '../actionDrawer/index.tsx';
 import ModalFooterEnd from '../modalFooterEnd/index'
 import { useTranslation } from "react-i18next";
@@ -87,9 +88,11 @@ function Assistant() {
     const [radioValue, setRadioValue] = useState('none')
     const [recordsSelected, setRecordsSelected] = useState<any>([])
     const [selectedModelRows, setSelectedRows] = useState<any[]>([])
+    const [selectedModelRowInfos, setSelectedModelRowInfos] = useState<any[]>([])
     const [selectedActionsSelected, setSelectedActionSelected] = useState<any[]>([])
     const [selectedRetrievalRows, setSelectedRetrievalRows] = useState<any[]>([])
-    const [options, setOptions] = useState([])
+    const [options, setOptions] = useState<RecordType[]>([])
+    const [_modelEvaluations, setModelEvaluations] = useState<Record<string, CapabilityEvaluationResultItem>>({})
     const [limit, setLimit] = useState(20)
     const [modelLimit, setModelLimit] = useState(20)
     const [updatePrevButton, setUpdatePrevButton] = useState(false)
@@ -218,6 +221,15 @@ function Assistant() {
         setModalTableOpen(false)
     }
     const handleModalCloseConfirm = ()=> {
+        if (selectedModelRowInfos?.length > 0) {
+            const selected = selectedModelRowInfos[0] as RecordType
+            const evalItem = selected?._evaluation || _modelEvaluations[selected?.model_id]
+            if (evalItem && !evalItem.is_compatible && evalItem.incompatibility_reasons?.length > 0) {
+                const first = evalItem.incompatibility_reasons[0]
+                toast.error(first.reason, { autoClose: 10000 })
+                return
+            }
+        }
         if(selectedModelRows) {
             let str = selectedModelRows[0];
             let index = str.lastIndexOf('-');
@@ -496,6 +508,18 @@ function Assistant() {
 
     }
 
+    const buildAssistantCapabilityRequirement = (): CapabilityRequirement => {
+        const hasTools = selectedActionsRows?.some((item: any) => item && item.value) || false
+        const hasRetrievals = selectedRetrievalRows?.some((item: any) => item && item.collection_id) || false
+        const retrievalUsesFunctionCall = retrievalConfig === 'function_call'
+        return {
+            streaming: true,
+            function_call: hasTools || (hasRetrievals && retrievalUsesFunctionCall),
+            vision: false,
+            response_format: undefined,
+        }
+    }
+
     const fetchModelsList = async (value?: any, type?: string) => {
         if (type) {
             dispatch(fetchModelsData(20) as any);
@@ -506,7 +530,7 @@ function Assistant() {
         }
         try {
             const res: any = await getModelsList(params, 'chat_completion')
-            const data = res.data.map((item: any) => {
+            const data: RecordType[] = res.data.map((item: any) => {
                 return {
                     ...item,
                     key: item.model_id
@@ -514,6 +538,24 @@ function Assistant() {
             })
             setOptions(data)
             setHasModelMore(res.has_more)
+            if (OpenDrawer) {
+                const requirement = buildAssistantCapabilityRequirement()
+                try {
+                    const modelIds = data.map(m => m.model_id)
+                    const evalRes = await evaluateModelCapabilities(requirement, modelIds)
+                    const evalData: CapabilityEvaluationResultItem[] = evalRes.data || []
+                    const map: Record<string, CapabilityEvaluationResultItem> = {}
+                    evalData.forEach(e => { map[e.model_id] = e })
+                    setModelEvaluations(map)
+                    const enriched: RecordType[] = data.map(m => ({
+                        ...m,
+                        _evaluation: map[m.model_id] || undefined,
+                    }))
+                    setOptions(enriched)
+                } catch (e) {
+                    console.error('Capability evaluation failed:', e)
+                }
+            }
         } catch (error) {
             console.log(error)
         }
@@ -583,6 +625,7 @@ function Assistant() {
         setRecordsSelected(value)
         const tag = selectedRows.map(item => (item.name + '-' + item.model_id))
         setSelectedRows(tag)
+        setSelectedModelRowInfos(selectedRows)
     }
 
     const handleCustom = (value: string) => {

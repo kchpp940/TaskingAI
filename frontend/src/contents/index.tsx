@@ -1,5 +1,4 @@
-
-import { Tag } from 'antd';
+import { Tag, Tooltip } from 'antd';
 import { formatTimestamp } from '@/utils/util'
 import ModelIcon from '@/commonComponent/modelIcon/index';
 
@@ -12,6 +11,7 @@ import ChatCompletionIcon from '@/assets/img/chatCompletion.svg?react'
 import TextEmbeddingIcon from '@/assets/img/textEmbedding.svg?react'
 import WildCardIcon from '@/assets/img/wildcard.svg?react'
 import RerankIcon from '@/assets/img/rerankIcon.svg?react'
+import type { RecordType, IncompatibilityReason } from '@/constant/index.ts'
 function CommonComponents() {
     const { t } = useTranslation()
     const statusReverse = {
@@ -60,7 +60,7 @@ function CommonComponents() {
             key: 'name',
             fixed: 'left',
             width: 240,
-            render: (text: string, record: any) =>
+            render: (text: string, record: RecordType) =>
                 <div>
                     <p className='table-text' style={{ fontSize: '14px' }}>{text || 'Untitled Model'}</p>
                     <p style={{ display: 'flex', alignItems: 'center', margin: 0, lineHeight: '18px' }}>
@@ -101,9 +101,39 @@ function CommonComponents() {
             dataIndex: 'properties',
             key: 'properties',
             width: 360,
-            render: (properties: object) => (
-                <ModelIcon properties={properties} />
-            ),
+            render: (properties: object, record: RecordType) => {
+                const evalItem = record._evaluation
+                if (evalItem && !evalItem.is_compatible && evalItem.incompatibility_reasons?.length > 0) {
+                    const reasons: IncompatibilityReason[] = evalItem.incompatibility_reasons
+                    return (
+                        <Tooltip
+                            placement="topLeft"
+                            title={
+                                <div>
+                                    {reasons.map((r, i) => (
+                                        <div key={i} style={{ marginBottom: i < reasons.length - 1 ? '6px' : 0 }}>
+                                            {r.reason}
+                                        </div>
+                                    ))}
+                                </div>
+                            }
+                        >
+                            <div>
+                                <Tag color="red" style={{ margin: 0 }}>Incompatible with current configuration</Tag>
+                            </div>
+                        </Tooltip>
+                    )
+                }
+                if (evalItem && evalItem.is_compatible) {
+                    return (
+                        <div>
+                            <ModelIcon properties={properties} />
+                            <Tag color="green" style={{ marginTop: '4px' }}>Compatible</Tag>
+                        </div>
+                    )
+                }
+                return <ModelIcon properties={properties} />
+            },
         },
         {
             title: `${t('projectModelColumnCreatedAt')}`,
