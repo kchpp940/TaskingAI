@@ -68,4 +68,31 @@ const getModelProviderList = async (type: string) => {
         return await request.get(`${project_base_url}/providers?limit=100`)
     }
 }
-export { getAiModelsList,getModelSchema, getModelsList, updateModels, deleteModels, createModels, getAiModelsForm, getModelsForm, getModelProviderList }
+
+interface CapabilityRequirement {
+    streaming?: boolean
+    function_call?: boolean
+    vision?: boolean
+    response_format?: string | null
+}
+
+const evaluateModelCapabilities = async (
+    requirement: CapabilityRequirement,
+    modelIds?: string[],
+    modelType?: string,
+) => {
+    const project_base_url = `api/v1`
+    return await request.post(`${project_base_url}/models/capability/evaluate`, {
+        model_ids: modelIds,
+        model_type: modelType,
+        requirement: {
+            streaming: false,
+            function_call: false,
+            vision: false,
+            response_format: null,
+            ...requirement,
+        },
+    })
+}
+
+export { getAiModelsList,getModelSchema, getModelsList, updateModels, deleteModels, createModels, getAiModelsForm, getModelsForm, getModelProviderList, evaluateModelCapabilities }

@@ -21,8 +21,10 @@ def add_auth_routes(route_prefix: str):
 
 def add_model_routes(route_prefix: str):
     from app.routes.model.model_schema import router as model_schema_router
+    from app.routes.model.capability import router as model_capability_router
 
     routes.include_router(model_schema_router, prefix=route_prefix)
+    routes.include_router(model_capability_router, prefix=route_prefix)
 
 
 def add_tool_action_routes(route_prefix: str):

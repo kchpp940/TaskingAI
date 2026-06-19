@@ -4,7 +4,7 @@ import styles from './playgroundModal.module.scss'
 import { useLocation, useNavigate } from 'react-router-dom';
 import { setPlaygroundModelId, setPlaygroundModelName,setTemperatureData, setMaxTokenData, setTopPData, setTopKData, setStopSequencesData } from '@/Redux/actions/playground'
 import { useDispatch } from 'react-redux';
-import { getModelSchema, getModelsForm } from '@/axios/models'
+import { getModelSchema, evaluateModelCapabilities } from '@/axios/models'
 import { RightOutlined, PlusOutlined } from '@ant-design/icons';
 import DeleteInputIcon from '../../assets/img/deleteInputIcon.svg?react'
 import NoModel from '@/assets/img/NO_MODEL.svg?react'
@@ -93,9 +93,12 @@ function PlaygroundModel() {
                     localStorage.setItem('allowedConfigs', JSON.stringify(res.data.allowed_configs))
                     setSelectedData([modelId])
 
-                    const res1 = await getModelsForm(modelId)
-
-                    const streaming = res1.data.normalized_capabilities?.streaming ?? false
+                    const evalRes = await evaluateModelCapabilities(
+                        { streaming: true },
+                        [modelId],
+                    )
+                    const evalResult = evalRes.data?.[0]
+                    const streaming = evalResult?.is_compatible ? evalResult.normalized_capabilities?.streaming : false
                     setStreamShow(streaming)
                     localStorage.setItem('streaming', JSON.stringify(streaming))
                 }
@@ -177,10 +180,14 @@ function PlaygroundModel() {
         setModelSchemaId(detailData.model_schema_id)
         setProviderId(detailData.provider_id)
         localStorage.setItem('providerId', detailData.provider_id)
-        const res1 = await getModelsForm(detailData.model_id)
         setOpen(false)
 
-        const streaming = res1.data.normalized_capabilities?.streaming ?? false
+        const evalRes = await evaluateModelCapabilities(
+            { streaming: true },
+            [detailData.model_id],
+        )
+        const evalResult = evalRes.data?.[0]
+        const streaming = evalResult?.is_compatible ? evalResult.normalized_capabilities?.streaming : false
         localStorage.setItem('streaming', JSON.stringify(streaming))
         localStorage.setItem('allowedConfigs', JSON.stringify(res.data.allowed_configs))
         setStreamShow(streaming)

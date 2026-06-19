@@ -34,6 +34,18 @@ interface RecordType {
   type: string;
   properties: any;
   provider_model_id: string;
+  normalized_capabilities?: {
+    streaming?: boolean;
+    function_call?: boolean;
+    vision?: boolean;
+    input_token_limit?: number;
+    output_token_limit?: number;
+    response_format?: string;
+  };
+  capability_incompatibility_reasons?: Array<{
+    capability: string;
+    reason: string;
+  }>;
 }
 interface projectIdType {
   name: string;

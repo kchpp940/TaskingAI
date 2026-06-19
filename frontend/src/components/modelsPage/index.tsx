@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, ChangeEvent } from 'react'
 import { Modal, Button, Spin, Space, Input, Form, Drawer, Tooltip, ConfigProvider, Select, InputNumber, Switch, Popover } from 'antd'
 import styles from './modelsPage.module.scss'
-import { getModelsList, updateModels, deleteModels, getModelsForm, getAiModelsForm, getAiModelsList, getModelSchema } from '@/axios/models'
+import { getModelsList, updateModels, deleteModels, getModelsForm, getAiModelsForm, getAiModelsList, getModelSchema, evaluateModelCapabilities } from '@/axios/models'
 import tooltipTitle from '../../contents/tooltipTitle'
 import { useSelector, useDispatch } from 'react-redux';
 import { fetchModelsData } from '../../Redux/actions';
@@ -177,9 +177,15 @@ function ModelsPage() {
         localStorage.setItem('providerId', value.provider_id)
         const res = await getModelSchema(value.model_schema_id)
         localStorage.setItem('allowedConfigs', JSON.stringify(res.data.allowed_configs))
-        const res1 = await getModelsForm(value.model_id)
-        const streaming = res1.data.normalized_capabilities?.streaming ?? false
+
+        const evalRes = await evaluateModelCapabilities(
+            { streaming: true },
+            [value.model_id],
+        )
+        const evalResult = evalRes.data?.[0]
+        const streaming = evalResult?.is_compatible ? evalResult.normalized_capabilities?.streaming : false
         localStorage.setItem('streaming', JSON.stringify(streaming))
+
         dispatch(setLoading(false));
         dispatch(setPlaygroundSelect('chat_completion'))
         navigate(`/project/playground?model_id=${value.model_id}&model_name=${value.name}`)
@@ -230,7 +236,7 @@ function ModelsPage() {
             name: record.name,
             provider_model_id: record.provider_model_id
         })
-        const nc = record.normalized_capabilities || {}
+        const nc = (record as any).normalized_capabilities || {}
         const props = record.properties || {}
         propertyForm.setFieldsValue({
             function_call: nc.function_call ?? props.function_call,
