@@ -63,6 +63,10 @@ jobs:
         working-directory: fork/backend
         run: pip install -r requirements.txt
 
+      - name: Validate Artifact Contracts
+        working-directory: fork
+        run: python contracts/artifact/generate_artifact_types.py --check
+
       - name: Install Test Dependencies
         working-directory: fork/backend
         run: pip install -r test_requirements.txt

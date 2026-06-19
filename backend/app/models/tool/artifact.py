@@ -13,7 +13,7 @@ from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field, field_validator
 
 try:
-    from app.utils.artifact_schema_validator import validate_artifact_list
+    from taskingai_contracts import validate_artifact_list as _contract_validate_artifact_list
     HAS_RUNTIME_SCHEMA_VALIDATION = True
 except ImportError:
     HAS_RUNTIME_SCHEMA_VALIDATION = False
@@ -161,7 +161,7 @@ def parse_and_normalize_artifacts(
 
     if artifacts_data:
         if HAS_RUNTIME_SCHEMA_VALIDATION:
-            is_valid, errors = validate_artifact_list(artifacts_data)
+            is_valid, errors = _contract_validate_artifact_list(artifacts_data)
             if not is_valid:
                 import logging
                 logger = logging.getLogger(__name__)

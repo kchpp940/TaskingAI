@@ -36,6 +36,16 @@ async def lifespan(app: FastAPI):
     try:
         logger.info("fastapi app startup...")
 
+        # Pre-startup contract validation
+        try:
+            from app.check_contracts import main as check_contracts
+            exit_code = check_contracts()
+            if exit_code != 0:
+                logger.error("Artifact contract check failed, aborting startup.")
+                raise RuntimeError("Artifact contract inconsistency detected")
+        except ImportError:
+            logger.info("Artifact contract check skipped (check_contracts module not available)")
+
         logger.info("start plugin cache scheduler...")
         _scheduler.add_job(sync_data, "interval", minutes=1)
         _scheduler.start()

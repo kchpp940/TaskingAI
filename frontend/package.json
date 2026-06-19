@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmitOnError && vite build",
+    "build": "python ../contracts/artifact/generate_artifact_types.py --check && tsc --noEmitOnError && vite build",
+    "check-contracts": "python ../contracts/artifact/generate_artifact_types.py --check",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview"
   },

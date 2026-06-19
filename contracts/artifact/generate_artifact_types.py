@@ -53,7 +53,7 @@ def generate_python_models(schema: dict, layer: str) -> str:
         extra_imports = "from pydantic import BaseModel, Field, field_validator"
         extra_module_imports = '''
 try:
-    from app.utils.artifact_schema_validator import validate_artifact_list
+    from taskingai_contracts import validate_artifact_list as _contract_validate_artifact_list
     HAS_RUNTIME_SCHEMA_VALIDATION = True
 except ImportError:
     HAS_RUNTIME_SCHEMA_VALIDATION = False
@@ -72,7 +72,7 @@ except ImportError:
         extra_imports = "from pydantic import BaseModel, Field, field_validator"
         extra_module_imports = '''
 try:
-    from app.utils.artifact_schema_validator import validate_artifact_list
+    from taskingai_contracts import validate_artifact_list as _contract_validate_artifact_list
     HAS_RUNTIME_SCHEMA_VALIDATION = True
 except ImportError:
     HAS_RUNTIME_SCHEMA_VALIDATION = False
@@ -373,7 +373,7 @@ def normalize_and_summarize_artifacts(
     if artifacts:
         if HAS_RUNTIME_SCHEMA_VALIDATION:
             artifact_dicts = [a.model_dump() for a in artifacts]
-            is_valid, errors = validate_artifact_list(artifact_dicts)
+            is_valid, errors = _contract_validate_artifact_list(artifact_dicts)
             if not is_valid:
                 import logging
                 logger = logging.getLogger(__name__)
@@ -454,7 +454,7 @@ def parse_and_normalize_artifacts(
 
     if artifacts_data:
         if HAS_RUNTIME_SCHEMA_VALIDATION:
-            is_valid, errors = validate_artifact_list(artifacts_data)
+            is_valid, errors = _contract_validate_artifact_list(artifacts_data)
             if not is_valid:
                 import logging
                 logger = logging.getLogger(__name__)
@@ -567,6 +567,13 @@ export interface Message {{
 
 
 def main():
+    import sys
+    args = sys.argv[1:]
+
+    if "--check" in args or "--verify" in args:
+        success = check_consistency()
+        sys.exit(0 if success else 1)
+
     print(f"Loading schema from: {SCHEMA_PATH}")
     schema = load_schema()
     print(f"Schema version: {schema['version']}")
@@ -589,10 +596,149 @@ def main():
         f.write(frontend_code)
     print(f"✓ Generated frontend: {FRONTEND_OUTPUT}")
 
+    # Also update the embedded schema in the contracts package
+    contracts_schema_path = Path(__file__).parent.parent / "python" / "taskingai_contracts" / "artifact" / "schemas" / "v1.0.json"
+    if contracts_schema_path.parent.exists():
+        import shutil
+        shutil.copy2(SCHEMA_PATH, contracts_schema_path)
+        print(f"✓ Updated embedded schema in contracts package: {contracts_schema_path}")
+
     print("\nAll files generated successfully!")
     print("\nNote: These files are auto-generated. To make changes:")
     print("  1. Edit contracts/artifact/v1.0.json")
     print("  2. Run: python contracts/artifact/generate_artifact_types.py")
+    print("\nTo verify consistency at any time:")
+    print("  python contracts/artifact/generate_artifact_types.py --check")
+
+
+def check_consistency() -> bool:
+    """
+    Check that all generated files match the current schema.
+    Returns True if everything is consistent, False otherwise.
+    Used in CI and startup checks.
+    """
+    import hashlib
+
+    print("=== Artifact Contract Consistency Check ===")
+    print()
+    all_ok = True
+
+    schema = load_schema()
+    schema_version = schema["version"]
+
+    # 1. Check constants consistency
+    constants = schema["properties"]["constants"]["properties"]
+    expected = {
+        "MAX_ARTIFACT_CONTENT_LENGTH": constants["MAX_ARTIFACT_CONTENT_LENGTH"]["const"],
+        "MAX_ARTIFACT_TITLE_LENGTH": constants["MAX_ARTIFACT_TITLE_LENGTH"]["const"],
+        "MAX_ARTIFACTS_PER_TOOL": constants["MAX_ARTIFACTS_PER_TOOL"]["const"],
+    }
+
+    layers = [
+        ("backend", BACKEND_OUTPUT, "python"),
+        ("plugin", PLUGIN_OUTPUT, "python"),
+        ("frontend", FRONTEND_OUTPUT, "typescript"),
+    ]
+
+    for layer_name, output_path, file_type in layers:
+        print(f"--- Checking {layer_name} ({output_path.relative_to(Path(__file__).parent.parent.parent)}) ---")
+
+        if not output_path.exists():
+            print(f"  ✗ FILE MISSING")
+            all_ok = False
+            continue
+
+        content = output_path.read_text()
+
+        # Check auto-generated header
+        if "AUTO-GENERATED" not in content:
+            print(f"  ✗ Missing AUTO-GENERATED header (file may have been manually edited)")
+            all_ok = False
+        else:
+            print(f"  ✓ Auto-generated header present")
+
+        # Check schema version
+        if f"v{schema_version}" in content:
+            print(f"  ✓ Schema version v{schema_version} matches")
+        else:
+            print(f"  ✗ Schema version mismatch (expected v{schema_version})")
+            all_ok = False
+
+        # Check constants
+        for key, value in expected.items():
+            if file_type == "python":
+                pattern = f"{key} = {value}"
+            else:
+                pattern = f"{key}: {value}"
+            if pattern in content:
+                print(f"  ✓ {key} = {value}")
+            else:
+                print(f"  ✗ {key} mismatch (expected = {value})")
+                all_ok = False
+
+        # Check ArtifactType enum values
+        expected_types = schema["definitions"]["ArtifactType"]["enum"]
+        if file_type == "python":
+            for t in expected_types:
+                if f'= "{t}"' in content:
+                    print(f"  ✓ ArtifactType.{t.upper()} present")
+                else:
+                    print(f"  ✗ ArtifactType.{t.upper()} missing")
+                    all_ok = False
+        else:
+            for t in expected_types:
+                if f"'{t}'" in content:
+                    print(f"  ✓ ArtifactType '{t}' present")
+                else:
+                    print(f"  ✗ ArtifactType '{t}' missing")
+                    all_ok = False
+
+        print()
+
+    # 2. Check contracts package embedded schema
+    print("--- Checking contracts package embedded schema ---")
+    contracts_schema_path = Path(__file__).parent.parent / "python" / "taskingai_contracts" / "artifact" / "schemas" / "v1.0.json"
+    if contracts_schema_path.exists():
+        embedded = contracts_schema_path.read_text()
+        source = SCHEMA_PATH.read_text()
+        if hashlib.sha256(embedded.encode()).hexdigest() == hashlib.sha256(source.encode()).hexdigest():
+            print("  ✓ Embedded schema matches source")
+        else:
+            print("  ✗ Embedded schema does NOT match source (re-run generator)")
+            all_ok = False
+    else:
+        print("  ⚠ Embedded schema path missing (not critical for dev)")
+    print()
+
+    # 3. Verify we can import taskingai_contracts
+    print("--- Checking taskingai_contracts package import ---")
+    try:
+        from taskingai_contracts import (
+            __schema_version__,
+            ArtifactType,
+            MAX_ARTIFACT_CONTENT_LENGTH,
+            validate_artifact,
+        )
+        print(f"  ✓ Package importable (schema v{__schema_version__})")
+
+        # Quick validation test
+        test_art = {"type": "text", "mime_type": "text/plain", "title": "Test"}
+        is_valid, _ = validate_artifact(test_art)
+        if is_valid:
+            print(f"  ✓ Runtime validation works")
+        else:
+            print(f"  ✗ Runtime validation failed unexpectedly")
+            all_ok = False
+    except ImportError as e:
+        print(f"  ⚠ Package not importable: {e} (install with: pip install -e contracts/python)")
+    print()
+
+    if all_ok:
+        print("✅ ALL CHECKS PASSED — artifact contract is consistent across all layers")
+    else:
+        print("❌ CHECKS FAILED — run `python contracts/artifact/generate_artifact_types.py` to regenerate")
+
+    return all_ok
 
 
 if __name__ == "__main__":

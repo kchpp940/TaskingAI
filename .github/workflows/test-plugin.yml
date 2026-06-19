@@ -73,6 +73,11 @@ jobs:
           cd ${{ env.WORKING_DIRECTORY }}
           pip install -r requirements.txt
 
+      - name: Validate Artifact Contracts
+        run: |
+          cd fork
+          python contracts/artifact/generate_artifact_types.py --check
+
       - name: Build Docker image
         run: |
           cd ${{ env.WORKING_DIRECTORY }}
