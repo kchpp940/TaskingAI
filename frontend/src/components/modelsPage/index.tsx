@@ -178,7 +178,8 @@ function ModelsPage() {
         const res = await getModelSchema(value.model_schema_id)
         localStorage.setItem('allowedConfigs', JSON.stringify(res.data.allowed_configs))
         const res1 = await getModelsForm(value.model_id)
-        localStorage.setItem('streaming', JSON.stringify(res1.data.properties.streaming))
+        const streaming = res1.data.normalized_capabilities?.streaming ?? res1.data.properties?.streaming ?? false
+        localStorage.setItem('streaming', JSON.stringify(streaming))
         dispatch(setLoading(false));
         dispatch(setPlaygroundSelect('chat_completion'))
         navigate(`/project/playground?model_id=${value.model_id}&model_name=${value.name}`)

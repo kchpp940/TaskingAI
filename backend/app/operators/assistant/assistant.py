@@ -10,6 +10,7 @@ from app.models import (
     ToolRef,
 )
 from app.schemas import AssistantCreateRequest, AssistantUpdateRequest
+from app.services.model.capability import capability_service
 from tkhelper.error import raise_request_validation_error
 from tkhelper.models import ModelEntity, RedisOperator
 from tkhelper.models.operator.postgres_operator import PostgresModelOperator
@@ -24,21 +25,17 @@ async def _validate_tools(
     tools: List[ToolRef],
     model: Model,
 ):
-    """
-    Validate tools
-    :param tools: a list of assistant tools
-    :param model: the assistant model
-    :return:
-    """
     from app.services.tool import verify_tools
 
     if not tools:
         return
 
-    if not model.allow_function_call():
-        raise_request_validation_error(
-            f"The assistant's language model {model.model_id} does not support function call to use the tools.",
-        )
+    capabilities = model.get_normalized_capabilities()
+    capability_service.check_and_raise(
+        capabilities=capabilities,
+        require_function_call=True,
+        model_id=model.model_id,
+    )
 
     await verify_tools(tools)
 
@@ -48,21 +45,17 @@ async def _validate_retrievals(
     retrieval_configs: RetrievalConfig,
     model: Model,
 ):
-    """
-    Validate retrievals
-    :param retrievals: a list of assistant retrievals
-    :param retrieval_configs: assistant retrieval configs
-    :param model: the assistant model
-    :return:
-    """
     from app.services.retrieval import verify_retrievals
 
     if not retrievals:
         return
 
-    if retrieval_configs.method == RetrievalMethod.FUNCTION_CALL and not model.allow_function_call():
-        raise_request_validation_error(
-            f"The assistant's language model {model.model_id} does not support function call to use retrieval.",
+    if retrieval_configs.method == RetrievalMethod.FUNCTION_CALL:
+        capabilities = model.get_normalized_capabilities()
+        capability_service.check_and_raise(
+            capabilities=capabilities,
+            require_function_call=True,
+            model_id=model.model_id,
         )
 
     await verify_retrievals(retrievals)

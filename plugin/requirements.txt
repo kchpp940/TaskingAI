@@ -5,7 +5,6 @@ python_dateutil==2.8.2
 aiohttp==3.9.4
 aiohttp_sse_client==0.2.1
 jsonschema==4.20.0
--e ../contracts/python
 PyJWT==2.8.0
 pycryptodome==3.20.0
 python-dotenv==1.0.0

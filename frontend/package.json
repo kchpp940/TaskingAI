@@ -5,15 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "npm run check-contracts && tsc --noEmitOnError && vite build",
-    "check-contracts": "npm run contracts:check",
-    "contracts:check": "node node_modules/@taskingai/contracts/dist/check-contracts.js",
-    "contracts:build": "cd ../contracts/npm && npm run build",
+    "build": "tsc --noEmitOnError && vite build",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview"
   },
   "dependencies": {
-    "@taskingai/contracts": "file:../contracts/npm",
     "@taskingai/taskingai-markdown": "^0.1.2",
     "antd": "^5.12.8",
     "axios": "^1.6.5",

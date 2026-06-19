@@ -53,11 +53,24 @@ class Model(ModelEntity):
     def is_custom_host(self):
         return self.provider_id == "custom_host"
 
+    def get_normalized_capabilities(self):
+        from app.services.model.capability import CapabilityEvaluationService
+
+        schema = self.model_schema()
+        schema_type = schema.type.value if schema else None
+        schema_props = schema.properties if schema else None
+        return CapabilityEvaluationService.evaluate(
+            model_type=self.type,
+            model_properties=self.properties,
+            model_schema_type=schema_type,
+            model_schema_properties=schema_props,
+        )
+
     def allow_function_call(self):
-        return self.type == "chat_completion" and self.properties.get("function_call", False)
+        return self.get_normalized_capabilities().function_call
 
     def allow_streaming(self):
-        return self.type == "chat_completion" and self.properties.get("streaming", False)
+        return self.get_normalized_capabilities().streaming
 
     @classmethod
     def build(cls, row: Dict):
@@ -90,6 +103,7 @@ class Model(ModelEntity):
 
     def to_response_dict(self) -> Dict:
         model_schema = self.model_schema()
+        capabilities = self.get_normalized_capabilities()
         return {
             "object": "Model",
             "model_id": self.model_id,
@@ -99,6 +113,7 @@ class Model(ModelEntity):
             "name": self.name,
             "type": self.type,
             "properties": model_schema.properties or self.properties,
+            "normalized_capabilities": capabilities.model_dump(exclude_none=True),
             "fallbacks": self.fallbacks.model_dump() if self.fallbacks else None,
             "configs": self.configs,
             "display_credentials": self.display_credentials,

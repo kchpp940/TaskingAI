@@ -12,7 +12,6 @@ from app.models import (
     Tool,
     ToolInput,
     ToolOutput,
-    Artifact,
     ChatCompletionAnyMessage,
     ChatCompletionFunction,
     ChatCompletionRole,
@@ -81,9 +80,6 @@ class Session(ABC):
         self.trace_collector = TraceCollector()
         self.session_start_timestamp = current_timestamp_int_milliseconds()
 
-        # artifacts collected from tool outputs
-        self.artifacts: List[Artifact] = []
-
     async def create_assistant_message(self, content_text: str, logs: List[Dict] = None):
         if not self.chat:
             raise MessageGenerationInvalidRequestException("Chat is required to create a message.")
@@ -92,7 +88,7 @@ class Session(ABC):
             chat_id=self.chat.chat_id,
             create_dict={
                 "role": MessageRole.ASSISTANT.value,
-                "content": MessageContent(text=content_text, artifacts=self.artifacts),
+                "content": MessageContent(text=content_text),
                 "metadata": {},
                 "logs": logs,
             },
@@ -138,11 +134,17 @@ class Session(ABC):
         except Exception as e:
             raise MessageGenerationInvalidRequestException(f"Failed to load model {self.assistant.model_id}.")
 
-        # Check model streaming
-        if not self.model.allow_streaming() and stream:
-            raise MessageGenerationInvalidRequestException(
-                f"Assistant model {self.model.model_id} does not support streaming. "
-            )
+        # Check model capabilities
+        from app.services.model.capability import capability_service
+
+        capabilities = self.model.get_normalized_capabilities()
+        result = capability_service.validate_requirements(
+            capabilities=capabilities,
+            require_streaming=stream,
+            model_id=self.model.model_id,
+        )
+        if not result.is_compatible:
+            raise MessageGenerationInvalidRequestException(result.incompatibility_reasons[0].reason)
 
         # Get chat memory with trace
         memory_event_id = generate_random_event_id()
@@ -431,9 +433,6 @@ class Session(ABC):
             tool_outputs: List[ToolOutput] = await run_tools(tool_inputs)
             for tool_output in tool_outputs:
                 self.chat_completion_messages.append(tool_output.to_function_message())
-
-                if tool_output.artifacts:
-                    self.artifacts.extend(tool_output.artifacts)
 
                 # Logging for other tools
                 if log:

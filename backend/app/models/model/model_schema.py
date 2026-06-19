@@ -47,6 +47,7 @@ class ModelSchema(BaseModel):
 
     def to_dict(self, lang: str):
         from app.services.model import i18n_text
+        from app.services.model.capability import CapabilityEvaluationService
 
         config_schemas = [
             {
@@ -58,6 +59,11 @@ class ModelSchema(BaseModel):
             for config_schema in self.config_schemas
         ]
 
+        capabilities = CapabilityEvaluationService.evaluate_model_schema_capabilities(
+            model_schema_type=self.type.value,
+            model_schema_properties=self.properties,
+        )
+
         return {
             "object": self.object_name(),
             "model_schema_id": self.model_schema_id,
@@ -67,6 +73,7 @@ class ModelSchema(BaseModel):
             "provider_model_id": self.provider_model_id,
             "type": self.type.value,
             "properties": self.properties,
+            "normalized_capabilities": capabilities.model_dump(exclude_none=True),
             "allowed_configs": self.allowed_configs,
             "config_schemas": config_schemas,
             "pricing": self.pricing,

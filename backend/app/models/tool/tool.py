@@ -3,8 +3,6 @@ from typing import Dict, Union, List
 from enum import Enum
 import json
 
-from .artifact import Artifact, parse_and_normalize_artifacts
-
 __all__ = ["ToolType", "ToolRef", "Tool", "ToolInput", "ToolOutput"]
 
 
@@ -94,33 +92,6 @@ class ToolOutput(BaseModel):
         ...,
         description="The tool output data.",
     )
-
-    artifacts: List[Artifact] = Field(
-        default_factory=list,
-        description="List of artifacts produced by the tool.",
-    )
-
-    @classmethod
-    def build(
-        cls,
-        type: ToolType,
-        tool_id: str,
-        tool_call_id: str,
-        status: int,
-        data: Union[Dict, List],
-        artifacts_data: List[Dict] = None,
-    ) -> "ToolOutput":
-        artifacts = parse_and_normalize_artifacts(
-            artifacts_data=artifacts_data,
-        )
-        return cls(
-            type=type,
-            tool_id=tool_id,
-            tool_call_id=tool_call_id,
-            status=status,
-            data=data,
-            artifacts=artifacts,
-        )
 
     def to_function_message(self):
         if self.status == 200:

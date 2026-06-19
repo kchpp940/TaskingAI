@@ -95,8 +95,9 @@ function PlaygroundModel() {
 
                     const res1 = await getModelsForm(modelId)
 
-                    setStreamShow(res1.data.properties.streaming)
-                    localStorage.setItem('streaming', JSON.stringify(res1.data.properties.streaming))
+                    const streaming = res1.data.normalized_capabilities?.streaming ?? res1.data.properties?.streaming ?? false
+                    setStreamShow(streaming)
+                    localStorage.setItem('streaming', JSON.stringify(streaming))
                 }
             }
             setLoading(false)
@@ -179,9 +180,10 @@ function PlaygroundModel() {
         const res1 = await getModelsForm(detailData.model_id)
         setOpen(false)
 
-        localStorage.setItem('streaming', JSON.stringify(res1.data.properties.streaming))
+        const streaming = res1.data.normalized_capabilities?.streaming ?? res1.data.properties?.streaming ?? false
+        localStorage.setItem('streaming', JSON.stringify(streaming))
         localStorage.setItem('allowedConfigs', JSON.stringify(res.data.allowed_configs))
-        setStreamShow(res1.data.properties.streaming)
+        setStreamShow(streaming)
         setAllowedConfigs(res.data.allowed_configs || [])
         dispatch(setPlaygroundModelId(detailData.model_id))
         dispatch(setPlaygroundModelName(detailData.name))

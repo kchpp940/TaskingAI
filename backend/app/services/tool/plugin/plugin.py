@@ -1,5 +1,5 @@
 import json
-from typing import Dict, List, Optional
+from typing import Dict, List
 import aiohttp
 from aiohttp.client_exceptions import ClientResponseError
 
@@ -25,7 +25,7 @@ async def run_plugin(
     :param bundle_instance_id: the bundle ID
     :param plugin_id: the action ID
     :param parameters: the parameters for the API call
-    :return: the response of the API call with status, data, and optional artifacts
+    :return: the response of the API call
     """
     bundle_instance: BundleInstance = await bundle_instance_ops.get(
         bundle_instance_id=bundle_instance_id,
@@ -40,7 +40,7 @@ async def run_plugin(
                     "plugin_id": plugin_id,
                     "input_params": parameters,
                     "encrypted_credentials": bundle_instance.encrypted_credentials,
-                    "project_id": CONFIG.PROJECT_ID,
+                    "project_id": CONFIG.PROJECT_ID
                 },
             )
 
@@ -48,6 +48,7 @@ async def run_plugin(
             max_size = 64 * 1024
             data_chunks = []
 
+            # check the size of the response
             async for chunk in response.content.iter_any():
                 bytes_read += len(chunk)
                 if bytes_read > max_size:
@@ -58,21 +59,17 @@ async def run_plugin(
 
             data_bytes = b"".join(data_chunks)
             try:
+                # Assuming the response is JSON and decode here
                 data_dict = json.loads(data_bytes.decode("utf-8"))
             except json.JSONDecodeError:
+                # Handle non-JSON response or decode error
                 return {"status": 500, "data": {"error": "Failed to decode the plugin response"}}
 
             response_wrapper = ResponseWrapper(response.status, data_dict)
 
             if response.status == 200:
                 data = response_wrapper.json().get("data")
-                result = {
-                    "status": data.get("status", 200),
-                    "data": data.get("data", {}),
-                }
-                if "artifacts" in data:
-                    result["artifacts"] = data["artifacts"]
-                return result
+                return {"status": data["status"], "data": data["data"]}
 
             return {"status": response.status, "data": response_wrapper.json().get("error")}
 

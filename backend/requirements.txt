@@ -1,6 +1,4 @@
 Fastapi==0.109.2
-jsonschema==4.20.0
--e ../contracts/python
 uvicorn==0.23.2
 aiohttp==3.9.4
 PyJWT==2.8.0

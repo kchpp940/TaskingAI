@@ -117,20 +117,16 @@ async def run_tools(tool_inputs: List[ToolInput]) -> List[ToolOutput]:
 
     tool_outputs: List[ToolOutput] = []
     for i, tool in enumerate(tool_inputs):
-        result = results[i]
-        status = result.get("status", 200)
-        data = result.get("data", {})
-        artifacts_data = result.get("artifacts")
-
-        tool_output = ToolOutput.build(
-            type=tool.type,
-            tool_id=tool.tool_id,
-            tool_call_id=tool.tool_call_id,
-            status=status,
-            data=data,
-            artifacts_data=artifacts_data,
-        )
-        tool_outputs.append(tool_output)
+        if tool.type == ToolType.ACTION or tool.type == ToolType.PLUGIN:
+            tool_outputs.append(
+                ToolOutput(
+                    type=tool.type,
+                    tool_id=tool.tool_id,
+                    tool_call_id=tool.tool_call_id,
+                    status=results[i].get("status"),
+                    data=results[i].get("data"),
+                )
+            )
 
     return tool_outputs
 
