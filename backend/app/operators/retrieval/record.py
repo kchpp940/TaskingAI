@@ -7,6 +7,7 @@ from app.database import postgres_pool
 from app.models import Record, RecordType, TextSplitter, Collection
 from app.database_ops.retrieval import record as db_record
 from app.services.retrieval.content_loader import load_db_content, load_content_to_split
+from app.services.retrieval.record_import_queue import enqueue_record_import
 
 from .collection import collection_ops
 from ..model import model_ops
@@ -26,7 +27,6 @@ async def process_content(
 ):
     from app.services.retrieval.embedding import embed_documents
 
-    # split content into chunks
     db_content = await load_db_content(
         record_type=type,
         content=content,
@@ -41,7 +41,6 @@ async def process_content(
         url=url,
     )
 
-    # embed the documents
     chunk_text_list, num_tokens_list = text_splitter.split_text(text=content_to_split, title=title)
     if len(chunk_text_list) > max_num_chunks:
         raise_http_error(
@@ -49,10 +48,8 @@ async def process_content(
             "The collection has no enough capacity to store the new chunks created from the record content.",
         )
 
-    # validate model
     embedding_model = await model_ops.get(model_id=collection.embedding_model_id)
 
-    # embed the documents
     embeddings = await embed_documents(
         documents=chunk_text_list,
         embedding_model=embedding_model,
@@ -68,7 +65,6 @@ class RecordModelOperator(PostgresModelOperator):
         create_dict: Dict,
         **kwargs,
     ) -> ModelEntity:
-        # handle kwargs
         self._check_kwargs(object_id_required=None, **kwargs)
         collection_id = kwargs["collection_id"]
 
@@ -78,22 +74,45 @@ class RecordModelOperator(PostgresModelOperator):
         text_splitter = TextSplitter(**create_dict["text_splitter"])
         metadata = create_dict["metadata"]
 
-        # validate collection
         collection = await collection_ops.get(collection_id=collection_id)
 
-        # split content into chunks
+        if type in (RecordType.FILE, RecordType.WEB):
+            new_record_id = Record.generate_random_id()
+            await db_record.create_record_only(
+                record_id=new_record_id,
+                collection=collection,
+                title=title,
+                type=type,
+                content=content,
+                metadata=metadata,
+            )
+
+            await enqueue_record_import(
+                job_id=new_record_id,
+                collection_id=collection_id,
+                type=type,
+                title=title,
+                content=content,
+                file_id=create_dict.get("file_id"),
+                url=create_dict.get("url"),
+                text_splitter=create_dict["text_splitter"],
+                metadata=metadata,
+            )
+
+            record = await self.get(collection_id=collection_id, record_id=new_record_id)
+            return record
+
         chunk_text_list, num_tokens_list, embeddings, db_content = await process_content(
             collection=collection,
             type=type,
             title=title,
-            content=create_dict.get("content"),
+            content=content,
             file_id=create_dict.get("file_id"),
             url=create_dict.get("url"),
             text_splitter=text_splitter,
             max_num_chunks=collection.rest_capacity(),
         )
 
-        # create record
         new_record_id = Record.generate_random_id()
         await db_record.create_record_and_chunks(
             record_id=new_record_id,
@@ -107,9 +126,7 @@ class RecordModelOperator(PostgresModelOperator):
             metadata=metadata,
         )
 
-        # get the created record
         record = await self.get(collection_id=collection_id, record_id=new_record_id)
-
         return record
 
     async def update(

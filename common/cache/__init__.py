@@ -1,4 +1,4 @@
-from common.cache import (
+from .base import (
     CacheStatus,
     FallbackReason,
     OperationType,
@@ -10,35 +10,18 @@ from common.cache import (
     DEFAULT_TTL,
     DEFAULT_MAX_RETRIES,
     DEFAULT_RETRY_DELAY,
+)
+from .key_namespace import (
     CacheKeyBuilder,
     KeyNamespace,
     CacheCategory,
     QueueCategory,
     build_cache_key,
-    EnhancedRedisConnection,
-    get_redis_connection,
-    HAS_REDIS,
-    StructuredCacheLogger,
-    CacheOperationTimer,
-    get_cache_logger,
-    CacheHelper,
-    QueueHelper,
 )
-
-from .embedding_cache import (
-    TextEmbeddingCacheEntry,
-    TextEmbeddingCache,
-    text_embedding_cache,
-    get_embedding_cache,
-    set_embedding_cache,
-    init_embedding_cache,
-)
-
-from .model_schema import *
-from .provider import *
-from .chat_completion import *
-from .text_embedding import *
-from .rerank import *
+from .connection import EnhancedRedisConnection, get_redis_connection, HAS_REDIS
+from .observability import StructuredCacheLogger, CacheOperationTimer, get_cache_logger
+from .cache_helper import CacheHelper
+from .queue_helper import QueueHelper
 
 __all__ = [
     "CacheStatus",
@@ -65,10 +48,4 @@ __all__ = [
     "get_cache_logger",
     "CacheHelper",
     "QueueHelper",
-    "TextEmbeddingCacheEntry",
-    "TextEmbeddingCache",
-    "text_embedding_cache",
-    "get_embedding_cache",
-    "set_embedding_cache",
-    "init_embedding_cache",
 ]

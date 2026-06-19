@@ -316,3 +316,6 @@ class CacheHelper(Generic[T]):
             expired_keys = [k for k, (_, exp) in self._memory_fallback.items() if exp <= now]
             for k in expired_keys:
                 del self._memory_fallback[k]
+
+    def is_using_fallback(self) -> bool:
+        return not self.redis_conn.is_available() and self.config.enable_fallback

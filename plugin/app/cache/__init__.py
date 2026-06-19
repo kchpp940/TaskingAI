@@ -1,18 +1,30 @@
-from .base import (
+from common.cache import (
     CacheStatus,
     FallbackReason,
+    OperationType,
     CacheConfig,
     QueueConfig,
     CacheResult,
     QueueResult,
+    CacheLogContext,
     DEFAULT_TTL,
     DEFAULT_MAX_RETRIES,
     DEFAULT_RETRY_DELAY,
+    CacheKeyBuilder,
+    KeyNamespace,
+    CacheCategory,
+    QueueCategory,
+    build_cache_key,
+    EnhancedRedisConnection,
+    get_redis_connection,
+    HAS_REDIS,
+    StructuredCacheLogger,
+    CacheOperationTimer,
+    get_cache_logger,
+    CacheHelper,
+    QueueHelper,
 )
-from .key_namespace import CacheKeyBuilder, KeyNamespace, build_cache_key, CacheCategory, QueueCategory
-from .connection import EnhancedRedisConnection, get_redis_connection
-from .cache_helper import CacheHelper
-from .queue_helper import QueueHelper
+
 from .artifact_cache import (
     ArtifactCacheEntry,
     ArtifactCache,
@@ -20,6 +32,7 @@ from .artifact_cache import (
     get_artifact_cache,
     set_artifact_cache,
     delete_artifact_cache,
+    init_artifact_cache,
 )
 
 from .bundle import *
@@ -31,10 +44,12 @@ from .i18n import *
 __all__ = [
     "CacheStatus",
     "FallbackReason",
+    "OperationType",
     "CacheConfig",
     "QueueConfig",
     "CacheResult",
     "QueueResult",
+    "CacheLogContext",
     "DEFAULT_TTL",
     "DEFAULT_MAX_RETRIES",
     "DEFAULT_RETRY_DELAY",
@@ -45,6 +60,10 @@ __all__ = [
     "build_cache_key",
     "EnhancedRedisConnection",
     "get_redis_connection",
+    "HAS_REDIS",
+    "StructuredCacheLogger",
+    "CacheOperationTimer",
+    "get_cache_logger",
     "CacheHelper",
     "QueueHelper",
     "ArtifactCacheEntry",
@@ -53,4 +72,5 @@ __all__ = [
     "get_artifact_cache",
     "set_artifact_cache",
     "delete_artifact_cache",
+    "init_artifact_cache",
 ]

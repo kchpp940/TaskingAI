@@ -1,15 +1,33 @@
 import json
 import time
 import uuid
+import logging
 from dataclasses import dataclass, asdict, field
 from typing import Any, Optional, Dict
 
-from .base import CacheConfig
-from .key_namespace import build_cache_key, KeyNamespace, CacheCategory
-from .connection import EnhancedRedisConnection
-from .cache_helper import CacheHelper
+from common.cache import (
+    CacheConfig,
+    CacheHelper,
+    CacheStatus,
+    build_cache_key,
+    KeyNamespace,
+    CacheCategory,
+    EnhancedRedisConnection,
+)
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_ARTIFACT_TTL = 3600 * 24
+
+__all__ = [
+    "ArtifactCacheEntry",
+    "ArtifactCache",
+    "artifact_cache",
+    "get_artifact_cache",
+    "set_artifact_cache",
+    "delete_artifact_cache",
+    "init_artifact_cache",
+]
 
 
 @dataclass
@@ -36,6 +54,15 @@ class ArtifactCacheEntry:
         return cls(**data)
 
 
+def _serialize_artifact(entry: ArtifactCacheEntry) -> str:
+    return json.dumps(entry.to_dict())
+
+
+def _deserialize_artifact(data: str) -> ArtifactCacheEntry:
+    parsed = json.loads(data)
+    return ArtifactCacheEntry.from_dict(parsed)
+
+
 class ArtifactCache:
     def __init__(
         self,
@@ -46,26 +73,15 @@ class ArtifactCache:
         self.redis_conn = redis_conn
         self.ttl = ttl
         self.module = module
-        config = CacheConfig(
-            ttl=ttl,
-            enable_fallback=True,
+        self._cache_helper = CacheHelper[ArtifactCacheEntry](
+            redis_conn=redis_conn,
+            config=CacheConfig(
+                ttl=ttl,
+                enable_fallback=True,
+                namespace=KeyNamespace.PLUGIN,
+            ),
             namespace=KeyNamespace.PLUGIN,
         )
-        self._cache_helper: Optional[CacheHelper] = None
-        self._init_lock = None
-
-    def _get_helper(self) -> CacheHelper:
-        if self._cache_helper is None:
-            self._cache_helper = CacheHelper(
-                redis_conn=self.redis_conn,
-                config=CacheConfig(
-                    ttl=self.ttl,
-                    enable_fallback=True,
-                    namespace=KeyNamespace.PLUGIN,
-                ),
-                namespace=KeyNamespace.PLUGIN,
-            )
-        return self._cache_helper
 
     def _build_key(self, artifact_id: str, plugin_id: str, artifact_type: str) -> str:
         return build_cache_key(
@@ -84,14 +100,13 @@ class ArtifactCache:
         artifact_type: str,
     ) -> Optional[ArtifactCacheEntry]:
         key = self._build_key(artifact_id, plugin_id, artifact_type)
-        helper = self._get_helper()
-        result = await helper.get(key, deserializer=_deserialize_artifact)
+        result = await self._cache_helper.get(key, deserializer=_deserialize_artifact)
         if result.value is not None:
             entry = result.value
             entry.access_count += 1
             entry.last_accessed = time.time()
-            if result.status.value != "fallback":
-                await helper.set(key, entry, ttl=self.ttl, serializer=_serialize_artifact)
+            if result.status != CacheStatus.FALLBACK:
+                await self._cache_helper.set(key, entry, ttl=self.ttl, serializer=_serialize_artifact)
             return entry
         return None
 
@@ -103,9 +118,8 @@ class ArtifactCache:
         key = self._build_key(entry.artifact_id, entry.plugin_id, entry.artifact_type)
         effective_ttl = ttl if ttl is not None else self.ttl
         entry.expires_at = time.time() + effective_ttl
-        helper = self._get_helper()
-        result = await helper.set(key, entry, ttl=effective_ttl, serializer=_serialize_artifact)
-        return result.value is True
+        result = await self._cache_helper.set(key, entry, ttl=effective_ttl, serializer=_serialize_artifact)
+        return result.value is True or result.status == CacheStatus.FALLBACK
 
     async def delete(
         self,
@@ -114,9 +128,8 @@ class ArtifactCache:
         artifact_type: str,
     ) -> bool:
         key = self._build_key(artifact_id, plugin_id, artifact_type)
-        helper = self._get_helper()
-        result = await helper.delete(key)
-        return result.value is True
+        result = await self._cache_helper.delete(key)
+        return result.value is True or result.status == CacheStatus.FALLBACK
 
     async def create(
         self,
@@ -143,6 +156,10 @@ class ArtifactCache:
             content_hash=content_hash,
         )
         await self.set(entry, ttl=ttl)
+        logger.info(
+            f"Artifact created: artifact_id={artifact_id}, "
+            f"plugin_id={plugin_id}, type={artifact_type}, size={size}"
+        )
         return entry
 
     async def exists(
@@ -164,38 +181,27 @@ class ArtifactCache:
         entry = await self.get(artifact_id, plugin_id, artifact_type)
         if entry is None:
             return False
-        effective_ttl = ttl if ttl is not None else self.ttl
-        return await self.set(entry, ttl=effective_ttl)
+        return await self.set(entry, ttl=ttl)
 
-
-def _serialize_artifact(entry: ArtifactCacheEntry) -> str:
-    return json.dumps(entry.to_dict())
-
-
-def _deserialize_artifact(data: str) -> ArtifactCacheEntry:
-    parsed = json.loads(data)
-    return ArtifactCacheEntry.from_dict(parsed)
-
-
-_artifact_cache_instance: Optional[ArtifactCache] = None
-
-
-def get_default_artifact_cache() -> ArtifactCache:
-    global _artifact_cache_instance
-    if _artifact_cache_instance is None:
-        from .connection import EnhancedRedisConnection
-        conn = EnhancedRedisConnection()
-        _artifact_cache_instance = ArtifactCache(redis_conn=conn)
-    return _artifact_cache_instance
-
-
-def init_artifact_cache(redis_conn: EnhancedRedisConnection, ttl: int = DEFAULT_ARTIFACT_TTL) -> ArtifactCache:
-    global _artifact_cache_instance
-    _artifact_cache_instance = ArtifactCache(redis_conn=redis_conn, ttl=ttl)
-    return _artifact_cache_instance
+    def is_using_fallback(self) -> bool:
+        return self._cache_helper.is_using_fallback()
 
 
 artifact_cache: Optional[ArtifactCache] = None
+
+
+def get_default_artifact_cache() -> ArtifactCache:
+    global artifact_cache
+    if artifact_cache is None:
+        conn = EnhancedRedisConnection(url="", name="plugin_artifact")
+        artifact_cache = ArtifactCache(redis_conn=conn)
+    return artifact_cache
+
+
+def init_artifact_cache(redis_conn: EnhancedRedisConnection, ttl: int = DEFAULT_ARTIFACT_TTL) -> ArtifactCache:
+    global artifact_cache
+    artifact_cache = ArtifactCache(redis_conn=redis_conn, ttl=ttl)
+    return artifact_cache
 
 
 async def get_artifact_cache(

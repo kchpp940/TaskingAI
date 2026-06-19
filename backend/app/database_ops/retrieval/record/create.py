@@ -1,9 +1,57 @@
 from app.database.connection import postgres_pool
 from app.models import Collection, RecordType
 from tkhelper.models import Status
-from typing import Dict, List
+from typing import Dict, List, Optional
 import json
 from .utils import insert_record_chunks
+
+
+async def create_record_only(
+    record_id: str,
+    collection: Collection,
+    title: str,
+    type: RecordType,
+    content: Optional[str],
+    metadata: Dict[str, str],
+    status: Status = Status.CREATING,
+) -> None:
+    """
+    Create record without chunks (for async import), status defaults to CREATING
+    :param record_id: the record id
+    :param collection: the collection where the record belongs to
+    :param title: the record title
+    :param type: the record type
+    :param content: the record content (optional, may be populated later)
+    :param metadata: the record metadata
+    :param status: the record status (defaults to CREATING)
+    :return: None
+    """
+
+    async with postgres_pool.get_db_connection() as conn:
+        async with conn.transaction():
+            await conn.execute(
+                """
+                INSERT INTO record (record_id, collection_id, title, type, content, status, metadata, num_chunks)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            """,
+                record_id,
+                collection.collection_id,
+                title,
+                type.value,
+                content or "",
+                status.value,
+                json.dumps(metadata),
+                0,
+            )
+
+            await conn.execute(
+                """
+                UPDATE collection
+                SET num_records = num_records + 1
+                WHERE collection_id = $1
+            """,
+                collection.collection_id,
+            )
 
 
 async def create_record_and_chunks(

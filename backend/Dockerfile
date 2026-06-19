@@ -13,16 +13,19 @@ ENV PYTHONPATH=/code/ \
 WORKDIR /code
 
 # Copy only the requirements.txt first to leverage Docker cache
-COPY ./requirements.txt ./
+COPY ./backend/requirements.txt ./
 RUN pip3 install --no-cache-dir -r requirements.txt
 
 # Install NLTK and download required data
-COPY ./nltk_data /usr/local/share/nltk_data
+COPY ./backend/nltk_data /usr/local/share/nltk_data
+
+# Copy the common package
+COPY ./common ./common
 
 # Copy the rest of the application
-COPY ./app ./app
-COPY ./tkhelper ./tkhelper
-COPY ./resources ./resources
+COPY ./backend/app ./app
+COPY ./backend/tkhelper ./tkhelper
+COPY ./backend/resources ./resources
 
 # Expose port 8000
 EXPOSE 8000

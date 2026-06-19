@@ -1,13 +1,20 @@
 import hashlib
 import json
 import logging
+import time
 from typing import List, Optional, Dict, Any
 from dataclasses import dataclass, field
 
 from config import CONFIG
-from .base import CacheConfig, CacheStatus, CacheHelper
-from .key_namespace import KeyNamespace, CacheCategory, build_cache_key
-from .connection import EnhancedRedisConnection
+from common.cache import (
+    CacheConfig,
+    CacheStatus,
+    CacheHelper,
+    KeyNamespace,
+    CacheCategory,
+    build_cache_key,
+    EnhancedRedisConnection,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +24,7 @@ __all__ = [
     "text_embedding_cache",
     "get_embedding_cache",
     "set_embedding_cache",
+    "init_embedding_cache",
 ]
 
 EMBEDDING_CACHE_NAMESPACE = f"{KeyNamespace.INFERENCE}:embedding"
@@ -142,8 +150,6 @@ class TextEmbeddingCache:
         if not self._enabled:
             return False
 
-        import time
-
         key = _generate_cache_key(text, model_schema_id, provider_model_id)
         entry = TextEmbeddingCacheEntry(
             text=text,
@@ -211,3 +217,9 @@ async def set_embedding_cache(
     return await text_embedding_cache.set(
         text, embedding, model_schema_id, provider_model_id, embedding_size
     )
+
+
+def init_embedding_cache(redis_conn: EnhancedRedisConnection) -> TextEmbeddingCache:
+    global text_embedding_cache
+    text_embedding_cache = TextEmbeddingCache(redis_conn=redis_conn)
+    return text_embedding_cache

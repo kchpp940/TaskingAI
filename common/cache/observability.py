@@ -1,5 +1,6 @@
 import logging
 import time
+import asyncio
 from typing import Any, Dict, Optional
 
 from .base import CacheLogContext, CacheStatus, OperationType, FallbackReason
@@ -8,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 class StructuredCacheLogger:
-    def __init__(self, name: str = "cache"):
+    def __init__(self, name: str = "common.cache"):
         self._logger = logging.getLogger(name)
 
     def _log(self, level: int, context: CacheLogContext, extra: Optional[Dict[str, Any]] = None):
@@ -62,7 +63,7 @@ class CacheOperationTimer:
         self.operation = operation
         self.namespace = namespace
         self.logger = logger or _default_logger
-        self.start_time: float = 0.0
+        self.start_time: float = time.time()
         self.retry_count: int = 0
         self.ttl: Optional[int] = None
         self.value_size: Optional[int] = None
@@ -74,7 +75,7 @@ class CacheOperationTimer:
     def __exit__(self, exc_type, exc_val, exc_tb):
         latency_ms = (time.time() - self.start_time) * 1000
 
-        if exc_val is not None:
+        if exc_val is not None and not isinstance(exc_val, asyncio.CancelledError):
             context = CacheLogContext(
                 cache_key=self.cache_key,
                 operation=self.operation,

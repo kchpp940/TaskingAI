@@ -1,5 +1,6 @@
 import json
 import logging
+import time
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, asdict
 
@@ -14,9 +15,11 @@ from tkhelper.cache import (
     QueueCategory,
 )
 from tkhelper.error import raise_http_error, ErrorCode
+from tkhelper.models import Status
 
-from app.database import enhanced_redis_conn
-from app.models import RecordType
+from app.database import enhanced_redis_conn, postgres_pool
+from app.models import RecordType, Record, TextSplitter, Collection
+from app.database_ops.retrieval import record as db_record
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +30,7 @@ __all__ = [
     "enqueue_record_import",
     "dequeue_record_import",
     "get_import_queue_length",
+    "process_record_import_job",
 ]
 
 RECORD_IMPORT_QUEUE_NAME = build_cache_key(
@@ -132,6 +136,119 @@ class RecordImportQueue:
 record_import_queue = RecordImportQueue()
 
 
+async def _mark_record_status(record_id: str, collection_id: str, status: Status, num_chunks: int = 0, error_message: Optional[str] = None):
+    async with postgres_pool.get_db_connection() as conn:
+        if status == Status.ERROR and error_message:
+            await conn.execute(
+                """
+                UPDATE record SET status = $1, num_chunks = $2, content = COALESCE(NULLIF(content, ''), $3)
+                WHERE record_id = $4 AND collection_id = $5
+                """,
+                status.value,
+                num_chunks,
+                json.dumps({"error": error_message}),
+                record_id,
+                collection_id,
+            )
+        else:
+            await conn.execute(
+                """
+                UPDATE record SET status = $1, num_chunks = $2
+                WHERE record_id = $3 AND collection_id = $4
+                """,
+                status.value,
+                num_chunks,
+                record_id,
+                collection_id,
+            )
+
+
+async def process_record_import_job(job: RecordImportJob) -> bool:
+    """
+    Process a dequeued record import job: load content, split, embed, write chunks, update status.
+    Uses QueueHelper's connection management transparently — the caller doesn't know about Redis vs fallback.
+    """
+    from app.operators.retrieval.record import process_content
+    from app.operators.retrieval.collection import collection_ops
+
+    logger.info(
+        f"Processing record import job: job_id={job.job_id}, "
+        f"collection_id={job.collection_id}, type={job.type.value}"
+    )
+
+    try:
+        collection = await collection_ops.get(collection_id=job.collection_id)
+        text_splitter = TextSplitter(**(job.text_splitter or {}))
+
+        chunk_text_list, num_tokens_list, embeddings, db_content = await process_content(
+            collection=collection,
+            type=job.type,
+            title=job.title,
+            content=job.content,
+            file_id=job.file_id,
+            url=job.url,
+            text_splitter=text_splitter,
+            max_num_chunks=collection.rest_capacity(),
+        )
+
+        async with postgres_pool.get_db_connection() as conn:
+            async with conn.transaction():
+                await conn.execute(
+                    """
+                    UPDATE record SET title = $1, type = $2, content = $3, status = $4, num_chunks = $5, metadata = $6
+                    WHERE record_id = $7 AND collection_id = $8
+                    """,
+                    job.title,
+                    job.type.value,
+                    db_content,
+                    Status.READY.value,
+                    len(chunk_text_list),
+                    json.dumps(job.metadata or {}),
+                    job.job_id,
+                    job.collection_id,
+                )
+
+                from app.database_ops.retrieval.record.utils import insert_record_chunks
+
+                await insert_record_chunks(
+                    conn=conn,
+                    collection_id=job.collection_id,
+                    record_id=job.job_id,
+                    chunk_text_list=chunk_text_list,
+                    chunk_embedding_list=embeddings,
+                    chunk_num_tokens_list=num_tokens_list,
+                )
+
+                await conn.execute(
+                    """
+                    UPDATE collection
+                    SET num_chunks = num_chunks + $1
+                    WHERE collection_id = $2
+                    """,
+                    len(chunk_text_list),
+                    job.collection_id,
+                )
+
+        logger.info(
+            f"Record import job succeeded: job_id={job.job_id}, "
+            f"num_chunks={len(chunk_text_list)}"
+        )
+        return True
+
+    except Exception as e:
+        logger.exception(f"Record import job failed: job_id={job.job_id}, error={e}")
+        try:
+            await _mark_record_status(
+                record_id=job.job_id,
+                collection_id=job.collection_id,
+                status=Status.ERROR,
+                error_message=str(e),
+            )
+        except Exception as mark_err:
+            logger.error(f"Failed to mark record error status: {mark_err}")
+        return False
+
+
 async def enqueue_record_import(
     collection_id: str,
     type: RecordType,
@@ -143,8 +260,6 @@ async def enqueue_record_import(
     metadata: Optional[Dict[str, str]] = None,
     job_id: Optional[str] = None,
 ) -> RecordImportJob:
-    import time
-    from app.models import Record
 
     if job_id is None:
         job_id = Record.generate_random_id()

@@ -265,3 +265,6 @@ class QueueHelper(Generic[T]):
             retry_count=self.config.max_retries,
             queue_length=0,
         )
+
+    def is_using_fallback(self) -> bool:
+        return not self.redis_conn.is_available() and self.config.enable_fallback

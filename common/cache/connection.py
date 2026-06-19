@@ -26,7 +26,7 @@ class ConnectionStats:
 
 class EnhancedRedisConnection:
     _instances: Dict[str, "EnhancedRedisConnection"] = {}
-    _lock = asyncio.Lock()
+    _lock: Optional[asyncio.Lock] = None
 
     def __init__(self, url: str = "", name: str = "default"):
         self.url = url
@@ -36,18 +36,24 @@ class EnhancedRedisConnection:
         self._init_lock = asyncio.Lock()
 
     @classmethod
+    def _get_class_lock(cls) -> asyncio.Lock:
+        if cls._lock is None:
+            cls._lock = asyncio.Lock()
+        return cls._lock
+
+    @classmethod
     async def get_instance(cls, url: str, name: str = "default") -> "EnhancedRedisConnection":
-        if name not in cls._instances:
-            async with cls._lock:
-                if name not in cls._instances:
-                    instance = cls(url, name)
-                    await instance.init()
-                    cls._instances[name] = instance
+        lock = cls._get_class_lock()
+        async with lock:
+            if name not in cls._instances:
+                instance = cls(url, name)
+                await instance.init()
+                cls._instances[name] = instance
         return cls._instances[name]
 
     async def init(self) -> None:
         if not HAS_REDIS:
-            logger.warning(f"[{self.name}] Redis not available (aioredis not installed), using memory fallback only")
+            logger.warning(f"[{self.name}] aioredis not installed, using memory fallback only")
             return
 
         async with self._init_lock:
@@ -104,6 +110,7 @@ class EnhancedRedisConnection:
         except asyncio.CancelledError:
             self.stats.health_check_failures += 1
             self.stats.last_health_check = time.time()
+            raise
         except Exception as e:
             self.stats.health_check_failures += 1
             self.stats.last_health_check = time.time()
@@ -150,11 +157,13 @@ class EnhancedRedisConnection:
 
 
 _connections: Dict[str, EnhancedRedisConnection] = {}
+_connections_lock = asyncio.Lock()
 
 
 async def get_redis_connection(url: str, name: str = "default") -> EnhancedRedisConnection:
     global _connections
-    if name not in _connections:
-        _connections[name] = EnhancedRedisConnection(url, name)
-        await _connections[name].init()
+    async with _connections_lock:
+        if name not in _connections:
+            _connections[name] = EnhancedRedisConnection(url, name)
+            await _connections[name].init()
     return _connections[name]
