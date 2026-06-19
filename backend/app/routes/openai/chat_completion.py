@@ -2,7 +2,6 @@ from fastapi import APIRouter, Depends, Request
 
 from app.operators import model_ops, assistant_ops
 from app.services.inference.chat_completion import chat_completion, stream_chat_completion
-from app.services.model.capability import capability_service, CapabilityRequirement
 from app.services.assistant.generation import StatelessNormalSession, StatelessStreamSession
 from .utils import *
 from starlette.responses import StreamingResponse
@@ -33,22 +32,10 @@ async def api_chat_completion_openai(
     if is_model_id(model_id=data.model_id):
         # validate model
         model = await model_ops.get(model_id=data.model_id)
+        # check function call ability
         functions = [function.model_dump() for function in data.functions] if data.functions is not None else None
-
-        capabilities = model.get_normalized_capabilities()
-
-        require_response_format = (data.configs or {}).get("response_format")
-
-        requirement = CapabilityRequirement(
-            streaming=data.stream,
-            function_call=bool(functions),
-            response_format=require_response_format,
-        )
-        capability_service.check_and_raise(
-            capabilities=capabilities,
-            requirement=requirement,
-            model_id=model.model_id,
-        )
+        if functions and not model.allow_function_call():
+            raise_request_validation_error(f"Model {model.model_id} does not support function calls.")
 
         # prepare messages
         messages = [message.model_dump() for message in data.messages]
@@ -56,6 +43,9 @@ async def api_chat_completion_openai(
 
         # perform chat completion with model
         if data.stream:
+            if not model.allow_streaming():
+                raise_request_validation_error(f"Model {model.model_id} does not support streaming.")
+
             async def generator():
                 chunk_id = generate_random_chat_completion_id()
                 async for chunk_dict in await stream_chat_completion(

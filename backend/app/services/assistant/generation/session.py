@@ -134,23 +134,11 @@ class Session(ABC):
         except Exception as e:
             raise MessageGenerationInvalidRequestException(f"Failed to load model {self.assistant.model_id}.")
 
-        # Check model capabilities
-        from app.services.model.capability import capability_service, CapabilityRequirement
-
-        capabilities = self.model.get_normalized_capabilities()
-        requirement = CapabilityRequirement(
-            streaming=stream,
-            function_call=bool(self.assistant.tools) or bool(chat_completion_input_functions),
-        )
-        try:
-            capability_service.check_and_raise(
-                capabilities=capabilities,
-                requirement=requirement,
-                model_id=self.model.model_id,
+        # Check model streaming
+        if not self.model.allow_streaming() and stream:
+            raise MessageGenerationInvalidRequestException(
+                f"Assistant model {self.model.model_id} does not support streaming. "
             )
-        except HTTPException as e:
-            reason = (e.detail or {}).get("message", str(e.detail)) if isinstance(e.detail, dict) else str(e.detail)
-            raise MessageGenerationInvalidRequestException(reason) from e
 
         # Get chat memory with trace
         memory_event_id = generate_random_event_id()

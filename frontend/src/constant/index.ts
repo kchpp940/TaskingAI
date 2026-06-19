@@ -26,35 +26,6 @@ interface projectHomeType {
   key: string;
   [key: string]: any;
 }
-interface NormalizedCapabilities {
-  streaming?: boolean;
-  function_call?: boolean;
-  vision?: boolean;
-  input_token_limit?: number;
-  output_token_limit?: number;
-  response_format?: string;
-}
-
-interface IncompatibilityReason {
-  capability: string;
-  required?: boolean;
-  reason: string;
-}
-
-interface CapabilityRequirement {
-  streaming?: boolean;
-  function_call?: boolean;
-  vision?: boolean;
-  response_format?: string;
-}
-
-interface CapabilityEvaluationResultItem {
-  model_id: string;
-  normalized_capabilities: NormalizedCapabilities;
-  is_compatible: boolean;
-  incompatibility_reasons: IncompatibilityReason[];
-}
-
 interface RecordType {
   name: string;
   model_id: string;
@@ -63,9 +34,6 @@ interface RecordType {
   type: string;
   properties: any;
   provider_model_id: string;
-  normalized_capabilities?: NormalizedCapabilities;
-  capability_incompatibility_reasons?: IncompatibilityReason[];
-  _evaluation?: CapabilityEvaluationResultItem;
 }
 interface projectIdType {
   name: string;
@@ -126,7 +94,6 @@ interface TableProps {
   title?: string;
   handleRecordsSelected?: (selectedRowKeys: string[], selectedRows: RecordType[]) => void;
   isShowNewCreateButton?: boolean;
-  capabilityRequirement?: CapabilityRequirement;
 }
 interface deleteProjectType {
   title: string;
@@ -147,5 +114,5 @@ interface FullApiResponse extends AxiosResponse {
   has_more: boolean;
 }
 interface CreateAssistantProps {}
-export type { MenuClickEvent,FullApiResponse,CreateAssistantProps, ModalFooterEndProps, deleteProjectType, modelModalProps, TableProps, promptListType, ModelProviderType, ProjectType, editUserProfileType, projectHomeType, RecordType, projectIdType, ChildRefType, formDataType, NormalizedCapabilities, IncompatibilityReason, CapabilityRequirement, CapabilityEvaluationResultItem }
+export type { MenuClickEvent,FullApiResponse,CreateAssistantProps, ModalFooterEndProps, deleteProjectType, modelModalProps, TableProps, promptListType, ModelProviderType, ProjectType, editUserProfileType, projectHomeType, RecordType, projectIdType, ChildRefType, formDataType }
 export default ApiErrorResponse

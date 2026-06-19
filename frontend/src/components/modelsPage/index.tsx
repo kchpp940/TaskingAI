@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, ChangeEvent } from 'react'
 import { Modal, Button, Spin, Space, Input, Form, Drawer, Tooltip, ConfigProvider, Select, InputNumber, Switch, Popover } from 'antd'
 import styles from './modelsPage.module.scss'
-import { getModelsList, updateModels, deleteModels, getModelsForm, getAiModelsForm, getAiModelsList, getModelSchema, evaluateModelCapabilities } from '@/axios/models'
+import { getModelsList, updateModels, deleteModels, getModelsForm, getAiModelsForm, getAiModelsList, getModelSchema } from '@/axios/models'
 import tooltipTitle from '../../contents/tooltipTitle'
 import { useSelector, useDispatch } from 'react-redux';
 import { fetchModelsData } from '../../Redux/actions';
@@ -177,15 +177,8 @@ function ModelsPage() {
         localStorage.setItem('providerId', value.provider_id)
         const res = await getModelSchema(value.model_schema_id)
         localStorage.setItem('allowedConfigs', JSON.stringify(res.data.allowed_configs))
-
-        const evalRes = await evaluateModelCapabilities(
-            { streaming: true },
-            [value.model_id],
-        )
-        const evalResult = evalRes.data?.[0]
-        const streaming = evalResult?.is_compatible ? evalResult.normalized_capabilities?.streaming : false
-        localStorage.setItem('streaming', JSON.stringify(streaming))
-
+        const res1 = await getModelsForm(value.model_id)
+        localStorage.setItem('streaming', JSON.stringify(res1.data.properties.streaming))
         dispatch(setLoading(false));
         dispatch(setPlaygroundSelect('chat_completion'))
         navigate(`/project/playground?model_id=${value.model_id}&model_name=${value.name}`)
@@ -236,32 +229,30 @@ function ModelsPage() {
             name: record.name,
             provider_model_id: record.provider_model_id
         })
-        const nc = (record as any).normalized_capabilities || {}
-        const props = record.properties || {}
         propertyForm.setFieldsValue({
-            function_call: nc.function_call ?? props.function_call,
-            streaming: nc.streaming ?? props.streaming,
-            input_token_limit: nc.input_token_limit ?? props.input_token_limit,
-            output_token_limit: nc.output_token_limit ?? props.output_token_limit,
-            embedding_size: props.embedding_size,
-            max_batch_size: props.max_batch_size
+            function_call: record.properties?.function_call,
+            streaming: record.properties?.streaming,
+            input_token_limit: record.properties?.input_token_limit,
+            output_token_limit: record.properties?.output_token_limit,
+            embedding_size: record.properties?.embedding_size,
+            max_batch_size: record.properties?.max_batch_size
 
         })
         wildcardForm.setFieldsValue({
-            function_call: nc.function_call ?? props.function_call,
-            streaming: nc.streaming ?? props.streaming,
-            input_token_limit: nc.input_token_limit ?? props.input_token_limit,
-            output_token_limit: nc.output_token_limit ?? props.output_token_limit,
-            embedding_size: props.embedding_size,
-            max_batch_size: props.max_batch_size
+            function_call: record.properties?.function_call,
+            streaming: record.properties?.streaming,
+            input_token_limit: record.properties?.input_token_limit,
+            output_token_limit: record.properties?.output_token_limit,
+            embedding_size: record.properties?.embedding_size,
+            max_batch_size: record.properties?.max_batch_size
         })
         setSelectedSecondId(record.model_schema_id)
         setSecondModalNameValue(record.name)
         setModelId(record.model_id)
         setType(record.type)
-        setFunctionCall(nc.function_call ?? props.function_call)
-        setStreaming(nc.streaming ?? props.streaming)
-        setProperties(props)
+        setFunctionCall(record.properties?.function_call)
+        setStreaming(record.properties?.streaming)
+        setProperties(record.properties)
         setProviderId(record.provider_id)
         await fetchEditFormData(record.model_id, record.provider_id)
         setEditLoading(false)

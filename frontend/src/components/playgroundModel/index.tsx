@@ -1,10 +1,10 @@
-import { Spin, Select, Slider, Input, ConfigProvider, Button, InputNumber, Checkbox, Alert } from 'antd'
+import { Spin, Select, Slider, Input, ConfigProvider, Button, InputNumber, Checkbox } from 'antd'
 import { useState, useEffect, useRef } from 'react'
 import styles from './playgroundModal.module.scss'
 import { useLocation, useNavigate } from 'react-router-dom';
 import { setPlaygroundModelId, setPlaygroundModelName,setTemperatureData, setMaxTokenData, setTopPData, setTopKData, setStopSequencesData } from '@/Redux/actions/playground'
 import { useDispatch } from 'react-redux';
-import { getModelSchema, evaluateModelCapabilities } from '@/axios/models'
+import { getModelSchema, getModelsForm } from '@/axios/models'
 import { RightOutlined, PlusOutlined } from '@ant-design/icons';
 import DeleteInputIcon from '../../assets/img/deleteInputIcon.svg?react'
 import NoModel from '@/assets/img/NO_MODEL.svg?react'
@@ -13,7 +13,6 @@ import { modalGenerate } from '@/axios/playground'
 import { SSE } from "sse.js";
 import { useSelector } from 'react-redux';
 import { toast } from 'react-toastify';
-import type { CapabilityRequirement, CapabilityEvaluationResultItem } from '@/constant/index.ts'
 const origin = window.location.origin;
 import IconComponent from '@/commonComponent/iconComponent/index.jsx';
 function PlaygroundModel() {
@@ -40,9 +39,6 @@ function PlaygroundModel() {
     const [allowedConfigs, setAllowedConfigs] = useState<any>([])
     const [selectedData, setSelectedData] = useState<any>([])
     const [streamShow, setStreamShow] = useState(false)
-    const [capabilityEvaluation, setCapabilityEvaluation] = useState<CapabilityEvaluationResultItem | null>(null)
-    const visionActive = false
-    const responseFormatValue = ''
     const contentListRef = useRef(null);
     const [temperatureCheckbox, setTemperatureCheckbox] = useState(false)
     const [maxTokenCheckbox, setMaxTokenCheckbox] = useState(false)
@@ -54,33 +50,6 @@ function PlaygroundModel() {
         role: 'user',
         content: ''
     }])
-    const buildCapabilityRequirement = (): CapabilityRequirement => {
-        return {
-            streaming: streamShow && streamSwitch,
-            function_call: false,
-            vision: visionActive,
-            response_format: responseFormatValue || undefined,
-        }
-    }
-
-    const runCapabilityEvaluation = async (modelId: string, requirement: CapabilityRequirement) => {
-        try {
-            const evalRes = await evaluateModelCapabilities(requirement, [modelId])
-            const evalResult = evalRes.data?.[0] || null
-            setCapabilityEvaluation(evalResult)
-            if (evalResult) {
-                const streamingSupported = evalResult.normalized_capabilities?.streaming
-                setStreamShow(Boolean(streamingSupported))
-                localStorage.setItem('streaming', JSON.stringify(Boolean(streamingSupported)))
-            }
-            return evalResult
-        } catch (e: any) {
-            console.error('Capability evaluation failed:', e)
-            setCapabilityEvaluation(null)
-            return null
-        }
-    }
-
     useEffect(() => {
         const list: any = contentListRef.current;
         if (list) {
@@ -124,13 +93,10 @@ function PlaygroundModel() {
                     localStorage.setItem('allowedConfigs', JSON.stringify(res.data.allowed_configs))
                     setSelectedData([modelId])
 
-                    const requirement: CapabilityRequirement = {
-                        streaming: true,
-                        function_call: false,
-                        vision: false,
-                        response_format: undefined,
-                    }
-                    await runCapabilityEvaluation(modelId, requirement)
+                    const res1 = await getModelsForm(modelId)
+
+                    setStreamShow(res1.data.properties.streaming)
+                    localStorage.setItem('streaming', JSON.stringify(res1.data.properties.streaming))
                 }
             }
             setLoading(false)
@@ -205,16 +171,17 @@ function PlaygroundModel() {
             name: detailData.name
         }])
         const res = await getModelSchema(detailData.model_schema_id)
+        console.log(res)
         localStorage.setItem('modelSchemaId', detailData.model_schema_id)
         setModelSchemaId(detailData.model_schema_id)
         setProviderId(detailData.provider_id)
         localStorage.setItem('providerId', detailData.provider_id)
+        const res1 = await getModelsForm(detailData.model_id)
         setOpen(false)
 
-        const requirement = buildCapabilityRequirement()
-        requirement.streaming = true
-        await runCapabilityEvaluation(detailData.model_id, requirement)
+        localStorage.setItem('streaming', JSON.stringify(res1.data.properties.streaming))
         localStorage.setItem('allowedConfigs', JSON.stringify(res.data.allowed_configs))
+        setStreamShow(res1.data.properties.streaming)
         setAllowedConfigs(res.data.allowed_configs || [])
         dispatch(setPlaygroundModelId(detailData.model_id))
         dispatch(setPlaygroundModelName(detailData.name))
@@ -235,19 +202,6 @@ function PlaygroundModel() {
         if (contentListNew[contentListNew.length - 1].role === 'assistant') {
             return toast.error('Last message should not be assistant message')
         }
-
-        const modelId = selectedModel[0]?.id
-        const requirement = buildCapabilityRequirement()
-        let evalResult = capabilityEvaluation
-        if (!evalResult || evalResult.model_id !== modelId) {
-            evalResult = await runCapabilityEvaluation(modelId, requirement)
-        }
-        if (evalResult && !evalResult.is_compatible && evalResult.incompatibility_reasons?.length) {
-            const first = evalResult.incompatibility_reasons[0]
-            toast.error(first.reason, { autoClose: 10000 })
-            return
-        }
-
         const configs = allowedConfigs.reduce((acc: any, key: any) => {
             if (key === 'temperature' && temperatureValue !== undefined && temperatureCheckbox) {
                 acc[key] = temperatureValue;
@@ -359,15 +313,8 @@ function PlaygroundModel() {
     // const handleStopSequences = (e: any) => {
     //     setStopSequences(e.target.value)
     // }
-    const handleStreamSwitch = async (e: any) => {
-        const newVal = e.target.checked
-        setStreamSwitch(newVal)
-        const modelId = selectedModel[0]?.id
-        if (modelId) {
-            const requirement = buildCapabilityRequirement()
-            requirement.streaming = newVal
-            await runCapabilityEvaluation(modelId, requirement)
-        }
+    const handleStreamSwitch = (e: any) => {
+        setStreamSwitch(e.target.checked)
     }
     const handleRoleChange = (value: any, index: number) => {
         setContentList((prev) => {
@@ -422,23 +369,6 @@ function PlaygroundModel() {
                             <div style={{ display: 'flex', margin: '12px 0 0 0' }}>
                                 <IconComponent providerId={providerId} />  <div className={styles.responseStream}>{modelSchemaId}</div>
                             </div>
-
-                            {capabilityEvaluation && !capabilityEvaluation.is_compatible && capabilityEvaluation.incompatibility_reasons?.length > 0 && (
-                                <div style={{ marginTop: '12px' }}>
-                                    <Alert
-                                        type="error"
-                                        showIcon
-                                        message="Capability incompatibility detected"
-                                        description={
-                                            <ul style={{ margin: 0, paddingLeft: '18px' }}>
-                                                {capabilityEvaluation.incompatibility_reasons.map((r, i) => (
-                                                    <li key={i}>{r.reason}</li>
-                                                ))}
-                                            </ul>
-                                        }
-                                    />
-                                </div>
-                            )}
 
                             {streamShow && <div style={{ marginTop: '12px' }}><Checkbox value={streamSwitch} defaultChecked={true} onChange={(e) => handleStreamSwitch(e)} /><span style={{ marginLeft: '8px' }}>Stream</span></div>}
                         </div>

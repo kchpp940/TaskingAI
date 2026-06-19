@@ -53,24 +53,11 @@ class Model(ModelEntity):
     def is_custom_host(self):
         return self.provider_id == "custom_host"
 
-    def get_normalized_capabilities(self):
-        from app.services.model.capability import CapabilityEvaluationService
-
-        schema = self.model_schema()
-        schema_type = schema.type.value if schema else None
-        schema_props = schema.properties if schema else None
-        return CapabilityEvaluationService.evaluate(
-            model_type=self.type,
-            model_properties=self.properties,
-            model_schema_type=schema_type,
-            model_schema_properties=schema_props,
-        )
-
     def allow_function_call(self):
-        return self.get_normalized_capabilities().function_call
+        return self.type == "chat_completion" and self.properties.get("function_call", False)
 
     def allow_streaming(self):
-        return self.get_normalized_capabilities().streaming
+        return self.type == "chat_completion" and self.properties.get("streaming", False)
 
     @classmethod
     def build(cls, row: Dict):
@@ -103,7 +90,6 @@ class Model(ModelEntity):
 
     def to_response_dict(self) -> Dict:
         model_schema = self.model_schema()
-        capabilities = self.get_normalized_capabilities()
         return {
             "object": "Model",
             "model_id": self.model_id,
@@ -113,27 +99,12 @@ class Model(ModelEntity):
             "name": self.name,
             "type": self.type,
             "properties": model_schema.properties or self.properties,
-            "normalized_capabilities": capabilities.model_dump(exclude_none=True),
-            "capability_incompatibility_reasons": self._build_unsupported_capabilities(capabilities),
             "fallbacks": self.fallbacks.model_dump() if self.fallbacks else None,
             "configs": self.configs,
             "display_credentials": self.display_credentials,
             "updated_timestamp": self.updated_timestamp,
             "created_timestamp": self.created_timestamp,
         }
-
-    def _build_unsupported_capabilities(self, capabilities) -> List[Dict]:
-        reasons = []
-        if self.type == "chat_completion":
-            if not capabilities.streaming:
-                reasons.append({"capability": "streaming", "reason": "Streaming output is not declared as supported by this model."})
-            if not capabilities.function_call:
-                reasons.append({"capability": "function_call", "reason": "Function/tool calling is not declared as supported by this model."})
-            if not capabilities.vision:
-                reasons.append({"capability": "vision", "reason": "Vision/image input is not declared as supported by this model."})
-            if not capabilities.response_format:
-                reasons.append({"capability": "response_format", "reason": "JSON mode / structured response format is not declared as supported (only possible when explicitly declared via schema capabilities or model override)."})
-        return reasons
 
     @staticmethod
     def object_name() -> str:

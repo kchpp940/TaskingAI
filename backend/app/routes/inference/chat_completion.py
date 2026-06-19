@@ -11,7 +11,6 @@ from tkhelper.error import raise_http_error, ErrorCode
 
 from app.schemas.model.chat_completion import ChatCompletionRequest
 from app.services.inference.chat_completion import chat_completion, stream_chat_completion
-from app.services.model.capability import capability_service, CapabilityRequirement
 from app.services.assistant.generation import StatelessNormalSession, StatelessStreamSession
 from app.operators import model_ops, assistant_ops
 from app.models import Model, Assistant
@@ -63,24 +62,15 @@ async def api_chat_completion(
             model_configs = model.configs or {}
             configs = {**model_configs, **input_configs}
 
-            capabilities = model.get_normalized_capabilities()
-
-            require_response_format = configs.get("response_format")
-
-            requirement = CapabilityRequirement(
-                streaming=data.stream,
-                function_call=bool(functions),
-                response_format=require_response_format,
-            )
-            capability_service.check_and_raise(
-                capabilities=capabilities,
-                requirement=requirement,
-                model_id=model.model_id,
-            )
+            # check function call ability
+            if functions and not model.allow_function_call():
+                raise_request_validation_error(f"Model {model.model_id} does not support function calls.")
 
             try:
                 # perform chat completion with model
                 if data.stream:
+                    if not model.allow_streaming():
+                        raise_request_validation_error(f"Model {model.model_id} does not support streaming.")
                     async def generator(sse_chunk_dicts):
                         async for chunk_dict in sse_chunk_dicts:
                             yield f"data: {json.dumps(chunk_dict)}\n\n"

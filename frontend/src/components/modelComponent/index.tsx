@@ -5,18 +5,16 @@ import {
 import closeIcon from '../../assets/img/x-close.svg'
 import { PlusOutlined } from '@ant-design/icons';
 import { useTranslation } from "react-i18next";
-import { useEffect, useState, useRef, useMemo } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import ModelModal from '../modelModal/index'
 import { ChildRefType } from '../../constant/index.ts'
 import ModalTable from '../modalTable/index'
-import { getModelsList, evaluateModelCapabilities } from '../../axios/models.ts'
+import { getModelsList } from '../../axios/models.ts'
 import { useDispatch } from 'react-redux';
 import { fetchModelsData } from '../../Redux/actions.ts'
 import { valueLimit, } from '@/constant/assistant.ts'
 import CommonComponents from '../../contents/index'
 import styles from './modelComponent.module.scss'
-import { toast } from 'react-toastify'
-import type { CapabilityRequirement, CapabilityEvaluationResultItem, RecordType } from '@/constant/index.ts'
 function ModelComponent(props: any) {
     const { t } = useTranslation();
     const dispatch = useDispatch();
@@ -26,64 +24,17 @@ function ModelComponent(props: any) {
     const [modelOne, setModelOne] = useState(false);
     const childRef = useRef<ChildRefType | null>(null);
     const [updateModelPrevButton, setUpdateModelPrevButton] = useState(false)
-    const [options, setOptions] = useState<RecordType[]>([])
+    const [options, setOptions] = useState([])
     const [hasModelMore, setHasModelMore] = useState(false)
     const [modelLimit, setModelLimit] = useState(20)
     const [selectedRows, setSelectedRows] = useState<any[]>([])
     const [detailSelectedRowInfo, setDetailSelectedRowInfo] = useState<any>({})
-    const [evaluationsByModelId, setEvaluationsByModelId] = useState<Record<string, CapabilityEvaluationResultItem>>({})
-    const [evaluating, setEvaluating] = useState(false)
-
-    const capabilityRequirement: CapabilityRequirement | undefined = props.capabilityRequirement
-
     useEffect(() => {
         fetchModelsList()
     }, [])
-
-    useEffect(() => {
-        if (capabilityRequirement && options.length > 0) {
-            runCapabilityEvaluation(options)
-        } else {
-            setEvaluationsByModelId({})
-        }
-    }, [capabilityRequirement])
-
     useEffect(() => {
         setSelectedRows(props.defaultSelectedData || [])
     }, [props.defaultSelectedData])
-
-    const runCapabilityEvaluation = async (models: RecordType[]) => {
-        if (!capabilityRequirement || models.length === 0) {
-            setEvaluationsByModelId({})
-            return
-        }
-        setEvaluating(true)
-        try {
-            const modelIds = models.map(m => m.model_id)
-            const evalRes = await evaluateModelCapabilities(capabilityRequirement, modelIds)
-            const evalData: CapabilityEvaluationResultItem[] = evalRes.data || []
-            const map: Record<string, CapabilityEvaluationResultItem> = {}
-            evalData.forEach(item => {
-                map[item.model_id] = item
-            })
-            setEvaluationsByModelId(map)
-        } catch (e) {
-            console.error('Capability evaluation failed:', e)
-        } finally {
-            setEvaluating(false)
-        }
-    }
-
-    const optionsWithEvaluation: RecordType[] = useMemo(() => {
-        return options.map(opt => {
-            const evalItem = evaluationsByModelId[opt.model_id]
-            if (!evalItem) return opt
-            return {
-                ...opt,
-                _evaluation: evalItem,
-            }
-        })
-    }, [options, evaluationsByModelId])
     const handleCreateModelId = async () => {
         await setModelOne(true)
         childRef.current?.fetchAiModelsList()
@@ -106,7 +57,7 @@ function ModelComponent(props: any) {
         }
         try {
             const res: any = await getModelsList(params, 'chat_completion')
-            const data: RecordType[] = res.data.map((item: any) => {
+            const data = res.data.map((item: any) => {
                 return {
                     ...item,
                     key: item.model_id
@@ -114,9 +65,6 @@ function ModelComponent(props: any) {
             })
             setOptions(data)
             setHasModelMore(res.has_more)
-            if (capabilityRequirement && data.length > 0) {
-                await runCapabilityEvaluation(data)
-            }
         } catch (error) {
             console.log(error)
         }
@@ -136,15 +84,6 @@ function ModelComponent(props: any) {
         setSelectedRows(tag)
     }
     const handleModalConfirm =async () => {
-        if (capabilityRequirement && detailSelectedRowInfo?.length > 0) {
-            const selected = detailSelectedRowInfo[0] as RecordType
-            const evalItem = selected?._evaluation || evaluationsByModelId[selected?.model_id]
-            if (evalItem && !evalItem.is_compatible && evalItem.incompatibility_reasons?.length > 0) {
-                const first = evalItem.incompatibility_reasons[0]
-                toast.error(first.reason, { autoClose: 10000 })
-                return
-            }
-        }
         setConfirmLoading(true)
         await props.handleModalConfirm(...detailSelectedRowInfo)
         setConfirmLoading(false)
@@ -169,7 +108,7 @@ function ModelComponent(props: any) {
                     </div>
                 </div>
             ]} title={t('projectSelectModel')} open={props.modalTableOpen} width={1000} className={`modal-inner-table ${styles['retrieval-model']}`}>
-                <ModalTable onOpenDrawer={handleCreateModelId} title='New model' name="model" updatePrevButton={updateModelPrevButton} defaultSelectedRowKeys={selectedRows} handleRecordsSelected={handleRecordsSelected} ifSelect={true} columns={modelsTableColumn} hasMore={hasModelMore} id='model_id' dataSource={optionsWithEvaluation} onChildEvent={handleChildModelEvent} capabilityRequirement={capabilityRequirement}></ModalTable>
+                <ModalTable onOpenDrawer={handleCreateModelId} title='New model' name="model" updatePrevButton={updateModelPrevButton} defaultSelectedRowKeys={selectedRows} handleRecordsSelected={handleRecordsSelected} ifSelect={true} columns={modelsTableColumn} hasMore={hasModelMore} id='model_id' dataSource={options} onChildEvent={handleChildModelEvent}></ModalTable>
             </Modal>
             <ModelModal type='chat_completion' ref={childRef} open={modelOne} handleSetModelConfirmOne={handleSetModelConfirmOne} handleSetModelOne={handleModalCancel} getOptionsList={fetchModelsList} modelType='chat_completion'></ModelModal>
         </>
