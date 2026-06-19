@@ -1,6 +1,6 @@
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
+from fastapi import HTTPException
 from pydantic import BaseModel, Field
-from tkhelper.error import raise_request_validation_error
 from enum import Enum
 
 __all__ = [
@@ -25,7 +25,7 @@ class NormalizedCapabilities(BaseModel):
     output_token_limit: Optional[int] = Field(None, description="Maximum output token count.")
     response_format: Optional[str] = Field(
         None,
-        description="The highest response_format level the model supports: None, 'json_object', or 'json_schema'.",
+        description="The highest response_format level the model supports: None, 'json_object', or 'json_schema'. Set explicitly via schema capabilities or model properties override only.",
     )
 
 
@@ -42,11 +42,12 @@ class CapabilityRequirement(BaseModel):
 class _IncompatibilityReason(BaseModel):
     capability: str = Field(..., description="The capability key that is incompatible.")
     required: bool = Field(..., description="Whether the capability was required.")
-    reason: str = Field(..., description="Human-readable reason for the incompatibility.")
+    reason: str = Field(..., description="Human-readable reason for the incompatibility, specific to the current requirement context.")
 
 
 class CapabilityEvaluationResult(BaseModel):
     capabilities: NormalizedCapabilities
+    requirement: CapabilityRequirement
     incompatibility_reasons: List[_IncompatibilityReason] = Field(default_factory=list)
 
     @property
@@ -62,14 +63,6 @@ def _response_format_level(fmt: Optional[str]) -> int:
     return 0
 
 
-def _allowed_configs_to_response_format(allowed_configs: Optional[List[str]]) -> Optional[str]:
-    if not allowed_configs:
-        return None
-    if "response_format" in allowed_configs:
-        return "json_object"
-    return None
-
-
 def _properties_to_response_format(props: Optional[Dict]) -> Optional[str]:
     if not props:
         return None
@@ -79,18 +72,27 @@ def _properties_to_response_format(props: Optional[Dict]) -> Optional[str]:
     return None
 
 
+def _build_reason(capability: str, requirement_context: str, model_id: str, detail: Optional[str] = None) -> str:
+    base = f"Model {model_id or ''} does not support {capability}"
+    if requirement_context:
+        base += f" {requirement_context}"
+    if detail:
+        base += f". {detail}"
+    base += "."
+    return base
+
+
 class CapabilityEvaluationService:
     @staticmethod
     def evaluate_model_capabilities(
         model_type: str,
         model_properties: Optional[Dict],
-        allowed_configs: Optional[List[str]] = None,
     ) -> NormalizedCapabilities:
         if model_type != "chat_completion":
             return NormalizedCapabilities()
 
         props = model_properties or {}
-        rf = _properties_to_response_format(props) or _allowed_configs_to_response_format(allowed_configs)
+        rf = _properties_to_response_format(props)
         return NormalizedCapabilities(
             streaming=bool(props.get("streaming", False)),
             function_call=bool(props.get("function_call", False)),
@@ -104,16 +106,13 @@ class CapabilityEvaluationService:
     def evaluate_model_schema_capabilities(
         model_schema_type: str,
         model_schema_properties: Optional[Dict],
-        allowed_configs: Optional[List[str]] = None,
     ) -> NormalizedCapabilities:
         if model_schema_type not in ("chat_completion", "wildcard"):
             return NormalizedCapabilities()
 
         props = model_schema_properties or {}
         is_wildcard = model_schema_type == "wildcard"
-        rf = _properties_to_response_format(props) or _allowed_configs_to_response_format(allowed_configs)
-        if is_wildcard and rf is None and "response_format" in (allowed_configs or []):
-            rf = "json_object"
+        rf = _properties_to_response_format(props)
 
         return NormalizedCapabilities(
             streaming=bool(props.get("streaming", True)) if is_wildcard else bool(props.get("streaming", False)),
@@ -130,18 +129,17 @@ class CapabilityEvaluationService:
         model_properties: Optional[Dict],
         model_schema_type: Optional[str] = None,
         model_schema_properties: Optional[Dict] = None,
-        allowed_configs: Optional[List[str]] = None,
     ) -> NormalizedCapabilities:
         base = NormalizedCapabilities()
 
         if model_schema_type and model_schema_properties is not None:
             base = CapabilityEvaluationService.evaluate_model_schema_capabilities(
-                model_schema_type, model_schema_properties, allowed_configs=allowed_configs,
+                model_schema_type, model_schema_properties
             )
 
         if model_type == "chat_completion":
             override = CapabilityEvaluationService.evaluate_model_capabilities(
-                model_type, model_properties, allowed_configs=allowed_configs,
+                model_type, model_properties
             )
             base.streaming = override.streaming
             base.function_call = override.function_call
@@ -168,7 +166,12 @@ class CapabilityEvaluationService:
                 _IncompatibilityReason(
                     capability="streaming",
                     required=True,
-                    reason=f"Model {model_id or ''} does not support streaming.",
+                    reason=_build_reason(
+                        "streaming",
+                        "to stream the response",
+                        model_id,
+                        "Please use a model with streaming support or disable streaming",
+                    ),
                 )
             )
 
@@ -177,7 +180,12 @@ class CapabilityEvaluationService:
                 _IncompatibilityReason(
                     capability="function_call",
                     required=True,
-                    reason=f"Model {model_id or ''} does not support function call.",
+                    reason=_build_reason(
+                        "function call",
+                        "to run tools, action plugins or retrievals via function invocation",
+                        model_id,
+                        "Please choose a model with function_call capability or remove the tools/retrievals from the current configuration",
+                    ),
                 )
             )
 
@@ -186,7 +194,12 @@ class CapabilityEvaluationService:
                 _IncompatibilityReason(
                     capability="vision",
                     required=True,
-                    reason=f"Model {model_id or ''} does not support vision input.",
+                    reason=_build_reason(
+                        "vision input",
+                        "to process images or image content in the user messages",
+                        model_id,
+                        "Please use a vision-capable model or remove image inputs",
+                    ),
                 )
             )
 
@@ -199,7 +212,12 @@ class CapabilityEvaluationService:
                         _IncompatibilityReason(
                             capability="response_format",
                             required=True,
-                            reason=f"Model {model_id or ''} does not support json_schema response format.",
+                            reason=_build_reason(
+                                "json_schema response format",
+                                "to enforce a strict JSON schema on output",
+                                model_id,
+                                "This model does not declare explicit json_schema support; please select a model with the response_format=json_schema capability",
+                            ),
                         )
                     )
                 elif requirement.response_format == "json_object":
@@ -207,12 +225,18 @@ class CapabilityEvaluationService:
                         _IncompatibilityReason(
                             capability="response_format",
                             required=True,
-                            reason=f"Model {model_id or ''} does not support json_object response format.",
+                            reason=_build_reason(
+                                "json_object response format",
+                                "to guarantee valid JSON output",
+                                model_id,
+                                "This model does not declare explicit JSON mode support; please select a model with the response_format=json_object capability",
+                            ),
                         )
                     )
 
         return CapabilityEvaluationResult(
             capabilities=capabilities,
+            requirement=requirement,
             incompatibility_reasons=reasons,
         )
 
@@ -225,7 +249,7 @@ class CapabilityEvaluationService:
         require_vision: bool = False,
         require_response_format: Optional[str] = None,
         model_id: Optional[str] = None,
-    ) -> NormalizedCapabilities:
+    ) -> CapabilityEvaluationResult:
         if requirement is None:
             requirement = CapabilityRequirement(
                 streaming=require_streaming,
@@ -240,8 +264,19 @@ class CapabilityEvaluationService:
         )
         if not result.is_compatible:
             first = result.incompatibility_reasons[0]
-            raise_request_validation_error(first.reason)
-        return capabilities
+            error_detail: Dict[str, Any] = {
+                "error_code": "REQUEST_VALIDATION_ERROR",
+                "message": first.reason,
+                "capability": first.capability,
+                "incompatibility_reasons": [
+                    r.model_dump() for r in result.incompatibility_reasons
+                ],
+            }
+            raise HTTPException(
+                status_code=422,
+                detail=error_detail,
+            )
+        return result
 
 
 capability_service = CapabilityEvaluationService()

@@ -142,13 +142,15 @@ class Session(ABC):
             streaming=stream,
             function_call=bool(self.assistant.tools) or bool(chat_completion_input_functions),
         )
-        result = capability_service.validate_requirements(
-            capabilities=capabilities,
-            requirement=requirement,
-            model_id=self.model.model_id,
-        )
-        if not result.is_compatible:
-            raise MessageGenerationInvalidRequestException(result.incompatibility_reasons[0].reason)
+        try:
+            capability_service.check_and_raise(
+                capabilities=capabilities,
+                requirement=requirement,
+                model_id=self.model.model_id,
+            )
+        except HTTPException as e:
+            reason = (e.detail or {}).get("message", str(e.detail)) if isinstance(e.detail, dict) else str(e.detail)
+            raise MessageGenerationInvalidRequestException(reason) from e
 
         # Get chat memory with trace
         memory_event_id = generate_random_event_id()

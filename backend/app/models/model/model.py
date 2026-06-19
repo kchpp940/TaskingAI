@@ -59,13 +59,11 @@ class Model(ModelEntity):
         schema = self.model_schema()
         schema_type = schema.type.value if schema else None
         schema_props = schema.properties if schema else None
-        allowed_configs = schema.allowed_configs if schema else None
         return CapabilityEvaluationService.evaluate(
             model_type=self.type,
             model_properties=self.properties,
             model_schema_type=schema_type,
             model_schema_properties=schema_props,
-            allowed_configs=allowed_configs,
         )
 
     def allow_function_call(self):
@@ -116,7 +114,7 @@ class Model(ModelEntity):
             "type": self.type,
             "properties": model_schema.properties or self.properties,
             "normalized_capabilities": capabilities.model_dump(exclude_none=True),
-            "incompatibility_reasons": self._build_incompatibility_reasons(capabilities),
+            "capability_incompatibility_reasons": self._build_unsupported_capabilities(capabilities),
             "fallbacks": self.fallbacks.model_dump() if self.fallbacks else None,
             "configs": self.configs,
             "display_credentials": self.display_credentials,
@@ -124,17 +122,17 @@ class Model(ModelEntity):
             "created_timestamp": self.created_timestamp,
         }
 
-    def _build_incompatibility_reasons(self, capabilities) -> List[Dict]:
+    def _build_unsupported_capabilities(self, capabilities) -> List[Dict]:
         reasons = []
         if self.type == "chat_completion":
             if not capabilities.streaming:
-                reasons.append({"capability": "streaming", "reason": "This model does not support streaming output."})
+                reasons.append({"capability": "streaming", "reason": "Streaming output is not declared as supported by this model."})
             if not capabilities.function_call:
-                reasons.append({"capability": "function_call", "reason": "This model does not support function/tool calls."})
+                reasons.append({"capability": "function_call", "reason": "Function/tool calling is not declared as supported by this model."})
             if not capabilities.vision:
-                reasons.append({"capability": "vision", "reason": "This model does not support image/vision input."})
+                reasons.append({"capability": "vision", "reason": "Vision/image input is not declared as supported by this model."})
             if not capabilities.response_format:
-                reasons.append({"capability": "response_format", "reason": "This model does not support structured response format (JSON mode)."})
+                reasons.append({"capability": "response_format", "reason": "JSON mode / structured response format is not declared as supported (only possible when explicitly declared via schema capabilities or model override)."})
         return reasons
 
     @staticmethod

@@ -62,7 +62,6 @@ class ModelSchema(BaseModel):
         capabilities = CapabilityEvaluationService.evaluate_model_schema_capabilities(
             model_schema_type=self.type.value,
             model_schema_properties=self.properties,
-            allowed_configs=self.allowed_configs,
         )
 
         return {
@@ -75,21 +74,21 @@ class ModelSchema(BaseModel):
             "type": self.type.value,
             "properties": self.properties,
             "normalized_capabilities": capabilities.model_dump(exclude_none=True),
-            "incompatibility_reasons": self._build_incompatibility_reasons(capabilities),
+            "capability_incompatibility_reasons": self._build_unsupported_capabilities(capabilities),
             "allowed_configs": self.allowed_configs,
             "config_schemas": config_schemas,
             "pricing": self.pricing,
         }
 
-    def _build_incompatibility_reasons(self, capabilities) -> List[Dict]:
+    def _build_unsupported_capabilities(self, capabilities) -> List[Dict]:
         reasons = []
         if self.type in (ModelType.CHAT_COMPLETION, ModelType.WILDCARD):
             if not capabilities.streaming:
-                reasons.append({"capability": "streaming", "reason": "This model schema does not support streaming output."})
+                reasons.append({"capability": "streaming", "reason": "Streaming output is not declared as supported by this model schema."})
             if not capabilities.function_call:
-                reasons.append({"capability": "function_call", "reason": "This model schema does not support function/tool calls."})
+                reasons.append({"capability": "function_call", "reason": "Function/tool calling is not declared as supported by this model schema."})
             if not capabilities.vision:
-                reasons.append({"capability": "vision", "reason": "This model schema does not support image/vision input."})
+                reasons.append({"capability": "vision", "reason": "Vision/image input is not declared as supported by this model schema."})
             if not capabilities.response_format:
-                reasons.append({"capability": "response_format", "reason": "This model schema does not support structured response format (JSON mode)."})
+                reasons.append({"capability": "response_format", "reason": "JSON mode / structured response format is not declared as supported. Only explicitly declared via schema capabilities or model override counts, not allowed_configs."})
         return reasons
