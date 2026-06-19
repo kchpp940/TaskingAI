@@ -11,7 +11,7 @@ from tkhelper.error import raise_http_error, ErrorCode
 
 from app.schemas.model.chat_completion import ChatCompletionRequest
 from app.services.inference.chat_completion import chat_completion, stream_chat_completion
-from app.services.model.capability import capability_service
+from app.services.model.capability import capability_service, CapabilityRequirement
 from app.services.assistant.generation import StatelessNormalSession, StatelessStreamSession
 from app.operators import model_ops, assistant_ops
 from app.models import Model, Assistant
@@ -65,10 +65,16 @@ async def api_chat_completion(
 
             capabilities = model.get_normalized_capabilities()
 
+            require_response_format = configs.get("response_format")
+
+            requirement = CapabilityRequirement(
+                streaming=data.stream,
+                function_call=bool(functions),
+                response_format=require_response_format,
+            )
             capability_service.check_and_raise(
                 capabilities=capabilities,
-                require_function_call=bool(functions),
-                require_streaming=data.stream,
+                requirement=requirement,
                 model_id=model.model_id,
             )
 

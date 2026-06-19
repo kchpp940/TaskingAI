@@ -95,7 +95,7 @@ function PlaygroundModel() {
 
                     const res1 = await getModelsForm(modelId)
 
-                    const streaming = res1.data.normalized_capabilities?.streaming ?? res1.data.properties?.streaming ?? false
+                    const streaming = res1.data.normalized_capabilities?.streaming ?? false
                     setStreamShow(streaming)
                     localStorage.setItem('streaming', JSON.stringify(streaming))
                 }
@@ -180,7 +180,7 @@ function PlaygroundModel() {
         const res1 = await getModelsForm(detailData.model_id)
         setOpen(false)
 
-        const streaming = res1.data.normalized_capabilities?.streaming ?? res1.data.properties?.streaming ?? false
+        const streaming = res1.data.normalized_capabilities?.streaming ?? false
         localStorage.setItem('streaming', JSON.stringify(streaming))
         localStorage.setItem('allowedConfigs', JSON.stringify(res.data.allowed_configs))
         setStreamShow(streaming)

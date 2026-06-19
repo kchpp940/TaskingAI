@@ -10,7 +10,7 @@ from app.models import (
     ToolRef,
 )
 from app.schemas import AssistantCreateRequest, AssistantUpdateRequest
-from app.services.model.capability import capability_service
+from app.services.model.capability import capability_service, CapabilityRequirement
 from tkhelper.error import raise_request_validation_error
 from tkhelper.models import ModelEntity, RedisOperator
 from tkhelper.models.operator.postgres_operator import PostgresModelOperator
@@ -33,7 +33,7 @@ async def _validate_tools(
     capabilities = model.get_normalized_capabilities()
     capability_service.check_and_raise(
         capabilities=capabilities,
-        require_function_call=True,
+        requirement=CapabilityRequirement(function_call=True),
         model_id=model.model_id,
     )
 
@@ -54,7 +54,7 @@ async def _validate_retrievals(
         capabilities = model.get_normalized_capabilities()
         capability_service.check_and_raise(
             capabilities=capabilities,
-            require_function_call=True,
+            requirement=CapabilityRequirement(function_call=True),
             model_id=model.model_id,
         )
 

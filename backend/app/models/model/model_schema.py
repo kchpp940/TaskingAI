@@ -62,6 +62,7 @@ class ModelSchema(BaseModel):
         capabilities = CapabilityEvaluationService.evaluate_model_schema_capabilities(
             model_schema_type=self.type.value,
             model_schema_properties=self.properties,
+            allowed_configs=self.allowed_configs,
         )
 
         return {
@@ -74,7 +75,21 @@ class ModelSchema(BaseModel):
             "type": self.type.value,
             "properties": self.properties,
             "normalized_capabilities": capabilities.model_dump(exclude_none=True),
+            "incompatibility_reasons": self._build_incompatibility_reasons(capabilities),
             "allowed_configs": self.allowed_configs,
             "config_schemas": config_schemas,
             "pricing": self.pricing,
         }
+
+    def _build_incompatibility_reasons(self, capabilities) -> List[Dict]:
+        reasons = []
+        if self.type in (ModelType.CHAT_COMPLETION, ModelType.WILDCARD):
+            if not capabilities.streaming:
+                reasons.append({"capability": "streaming", "reason": "This model schema does not support streaming output."})
+            if not capabilities.function_call:
+                reasons.append({"capability": "function_call", "reason": "This model schema does not support function/tool calls."})
+            if not capabilities.vision:
+                reasons.append({"capability": "vision", "reason": "This model schema does not support image/vision input."})
+            if not capabilities.response_format:
+                reasons.append({"capability": "response_format", "reason": "This model schema does not support structured response format (JSON mode)."})
+        return reasons

@@ -178,7 +178,7 @@ function ModelsPage() {
         const res = await getModelSchema(value.model_schema_id)
         localStorage.setItem('allowedConfigs', JSON.stringify(res.data.allowed_configs))
         const res1 = await getModelsForm(value.model_id)
-        const streaming = res1.data.normalized_capabilities?.streaming ?? res1.data.properties?.streaming ?? false
+        const streaming = res1.data.normalized_capabilities?.streaming ?? false
         localStorage.setItem('streaming', JSON.stringify(streaming))
         dispatch(setLoading(false));
         dispatch(setPlaygroundSelect('chat_completion'))
@@ -230,30 +230,32 @@ function ModelsPage() {
             name: record.name,
             provider_model_id: record.provider_model_id
         })
+        const nc = record.normalized_capabilities || {}
+        const props = record.properties || {}
         propertyForm.setFieldsValue({
-            function_call: record.properties?.function_call,
-            streaming: record.properties?.streaming,
-            input_token_limit: record.properties?.input_token_limit,
-            output_token_limit: record.properties?.output_token_limit,
-            embedding_size: record.properties?.embedding_size,
-            max_batch_size: record.properties?.max_batch_size
+            function_call: nc.function_call ?? props.function_call,
+            streaming: nc.streaming ?? props.streaming,
+            input_token_limit: nc.input_token_limit ?? props.input_token_limit,
+            output_token_limit: nc.output_token_limit ?? props.output_token_limit,
+            embedding_size: props.embedding_size,
+            max_batch_size: props.max_batch_size
 
         })
         wildcardForm.setFieldsValue({
-            function_call: record.properties?.function_call,
-            streaming: record.properties?.streaming,
-            input_token_limit: record.properties?.input_token_limit,
-            output_token_limit: record.properties?.output_token_limit,
-            embedding_size: record.properties?.embedding_size,
-            max_batch_size: record.properties?.max_batch_size
+            function_call: nc.function_call ?? props.function_call,
+            streaming: nc.streaming ?? props.streaming,
+            input_token_limit: nc.input_token_limit ?? props.input_token_limit,
+            output_token_limit: nc.output_token_limit ?? props.output_token_limit,
+            embedding_size: props.embedding_size,
+            max_batch_size: props.max_batch_size
         })
         setSelectedSecondId(record.model_schema_id)
         setSecondModalNameValue(record.name)
         setModelId(record.model_id)
         setType(record.type)
-        setFunctionCall(record.properties?.function_call)
-        setStreaming(record.properties?.streaming)
-        setProperties(record.properties)
+        setFunctionCall(nc.function_call ?? props.function_call)
+        setStreaming(nc.streaming ?? props.streaming)
+        setProperties(props)
         setProviderId(record.provider_id)
         await fetchEditFormData(record.model_id, record.provider_id)
         setEditLoading(false)

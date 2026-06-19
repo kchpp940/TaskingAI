@@ -135,12 +135,16 @@ class Session(ABC):
             raise MessageGenerationInvalidRequestException(f"Failed to load model {self.assistant.model_id}.")
 
         # Check model capabilities
-        from app.services.model.capability import capability_service
+        from app.services.model.capability import capability_service, CapabilityRequirement
 
         capabilities = self.model.get_normalized_capabilities()
+        requirement = CapabilityRequirement(
+            streaming=stream,
+            function_call=bool(self.assistant.tools) or bool(chat_completion_input_functions),
+        )
         result = capability_service.validate_requirements(
             capabilities=capabilities,
-            require_streaming=stream,
+            requirement=requirement,
             model_id=self.model.model_id,
         )
         if not result.is_compatible:
