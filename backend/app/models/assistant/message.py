@@ -11,6 +11,7 @@ from tkhelper.schemas.field import *
 
 from .assistant import Assistant
 from .chat import Chat
+from ..tool.artifact import Artifact
 
 __all__ = ["Message", "MessageRole", "MessageContent", "MessageGenerationLog"]
 
@@ -48,13 +49,15 @@ class MessageGenerationLog(BaseModel):
 class MessageContent(BaseModel):
 
     """
-    MessageContent is the content of a message. Currently supports text and artifacts.
+    MessageContent is the content of a message.
+    Includes text content and optional artifacts from tool executions.
     """
 
     text: str = Field(..., description="The text content of the message.", examples=["Hello!"])
-    artifacts: Optional[List[Dict[str, Any]]] = Field(
-        None,
-        description="List of artifacts attached to the message (e.g. files, images, retrieval results).",
+
+    artifacts: List[Artifact] = Field(
+        default_factory=list,
+        description="List of artifacts associated with the message (from tool executions).",
     )
 
 

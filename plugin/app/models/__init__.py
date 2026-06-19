@@ -4,3 +4,4 @@ from .plugin_handler import *
 from .base import *
 from .bundle import *
 from .bundle_handler import *
+from .artifact import *

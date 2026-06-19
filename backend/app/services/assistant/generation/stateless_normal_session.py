@@ -1,8 +1,7 @@
-import logging
-from typing import List
-
 from fastapi import HTTPException
-from tkhelper.error import ErrorCode, raise_http_error
+from typing import List
+from tkhelper.error import raise_http_error, ErrorCode
+import logging
 
 from app.schemas.model.chat_completion import ChatCompletionResponse
 from app.models.inference import *
@@ -11,7 +10,6 @@ from app.models import Assistant
 from .session import Session
 from .utils import *
 from .log import *
-from .result_builder import MessageFinalizationHelper
 
 logger = logging.getLogger(__name__)
 
@@ -34,62 +32,70 @@ class StatelessNormalSession(Session):
                 chat_completion_input_functions=functions,
             )
             function_calls_round_index = 0
-            inference_round_index = 0
 
             while True:
                 try:
-                    inference_round_index += 1
                     chat_completion_event_id = generate_random_event_id()
-                    self.result_builder.append_chat_completion_input_log(
-                        event_id=chat_completion_event_id, save=self.save_logs
-                    )
+                    # append chat completion input log
+                    if self.save_logs:
+                        chat_completion_input_log_dict = build_chat_completion_input_log_dict(
+                            session_id=self.session_id,
+                            event_id=chat_completion_event_id,
+                            model=self.model,
+                            messages=self.chat_completion_messages,
+                            functions=self.chat_completion_functions,
+                        )
+                        self.logs.append(chat_completion_input_log_dict)
 
+                    # inference
                     (
-                        assistant_message_dict,
-                        function_calls,
+                        chat_completion_assistant_message_dict,
+                        chat_completion_function_calls_dict_list,
                         usage_dict,
-                        completion_data,
+                        response_dict,
                     ) = await self.inference()
 
-                    self.result_builder.append_chat_completion_output_log(
-                        event_id=chat_completion_event_id,
-                        assistant_message_dict=assistant_message_dict,
-                        usage_dict=usage_dict,
-                        save=self.save_logs,
-                    )
-
-                    ir = self.result_builder.begin_inference_round(
-                        round_index=inference_round_index, event_id=chat_completion_event_id
-                    )
-                    self.result_builder.complete_inference_round(
-                        ir=ir,
-                        assistant_message_dict=assistant_message_dict,
-                        function_calls=function_calls,
-                        usage_dict=usage_dict,
-                        response_dict=completion_data,
-                    )
+                    # append chat completion output log
+                    if self.save_logs:
+                        chat_completion_output_log_dict = build_chat_completion_output_log_dict(
+                            session_id=self.session_id,
+                            event_id=chat_completion_event_id,
+                            model=self.model,
+                            message=chat_completion_assistant_message_dict,
+                            usage=usage_dict,
+                        )
+                        self.logs.append(chat_completion_output_log_dict)
 
                 except HTTPException as e:
                     raise MessageGenerationException(f"Error occurred in chat completion inference. {e.detail}")
                 except Exception as e:
                     raise MessageGenerationException(f"Error occurred in chat completion inference")
 
-                logger.debug(f"chat_completion_assistant_message = {assistant_message_dict}")
-                logger.debug(f"chat_completion_function_calls_dict_list = {function_calls}")
+                logger.debug(f"chat_completion_assistant_message = {chat_completion_assistant_message_dict}")
+                logger.debug(f"chat_completion_function_calls_dict_list = {chat_completion_function_calls_dict_list}")
 
-                if function_calls:
-                    if self.result.has_user_function_calls:
+                if chat_completion_function_calls_dict_list:
+                    # check if there are any user functions in the chat completion response
+                    # if there are, filter them and return them in the response
+                    # don't include other tool calls in the response
+                    filtered_user_function_calls = self.filter_user_function_calls(
+                        chat_completion_function_calls_dict_list
+                    )
+                    if filtered_user_function_calls:
+                        response_dict["message"]["function_calls"] = filtered_user_function_calls
                         break
 
                     function_calls_round_index += 1
                     try:
-                        logger.debug(f"FUNCTION_CALLS: tool_call = {function_calls}")
+                        logger.debug(f"FUNCTION_CALLS: tool_call = {chat_completion_function_calls_dict_list}")
 
-                        await self.result_builder.process_tool_calls(
-                            function_calls,
+                        await self.use_tool(
+                            chat_completion_function_calls_dict_list,
                             round_index=function_calls_round_index,
                             log=self.save_logs,
                         )
+                        async for _ in self.run_tools(chat_completion_function_calls_dict_list):
+                            pass
                     except MessageGenerationException as e:
                         logger.error(f"MessageGenerationException occurred in using the tools: {e}")
                         raise e
@@ -100,9 +106,11 @@ class StatelessNormalSession(Session):
                 else:
                     break
 
-            return MessageFinalizationHelper.build_stateless_normal_response(
-                self.result, builder=self.result_builder
-            )
+            response_dict["usage"]["input_tokens"] = self.total_input_tokens
+            response_dict["usage"]["output_tokens"] = self.total_output_tokens
+
+            # todo: save logs
+            return ChatCompletionResponse(data=response_dict)
 
         except MessageGenerationInvalidRequestException as e:
             logger.error(f"StatelessNormalSession.generate: HTTPException error = {e}")

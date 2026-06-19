@@ -48,6 +48,8 @@ import { useDispatch, useSelector } from 'react-redux';
 import './index.css'
 import { fetchAssistantsData } from '@/Redux/actions.ts'
 import MarkdownMessageBlock from '@taskingai/taskingai-markdown'
+import ArtifactCard from '@/components/artifactCard'
+import type { Artifact } from '@/types/artifact'
 const origin = window.location.origin;
 const plainOptions = [
     { label: 'Stream', value: 1 },
@@ -1513,6 +1515,13 @@ function Playground() {
                                         <div className={styles['message']} key={index} ref={divRef}>
                                             <div className={`${styles.subText1} ${item.role === 'user' ? styles.user : ''}`}>{item.role.charAt(0).toUpperCase() + item.role.slice(1)}</div>
                                             {typeof (item.content.text) === 'string' && <div className={`${styles.text1} ${item.role === 'user' ? styles.userInfo : ''}`} style={{ whiteSpace: "pre-line" }}>{checkBoxValue.indexOf(4) !== -1 ? <MarkdownMessageBlock message={item.content.text} /> : item.content.text}</div>}
+                                            {item.content.artifacts && item.content.artifacts.length > 0 && (
+                                                <div className={styles.artifactsContainer}>
+                                                    {item.content.artifacts.map((artifact: Artifact, aIndex: number) => (
+                                                        <ArtifactCard key={aIndex} artifact={artifact} />
+                                                    ))}
+                                                </div>
+                                            )}
                                             {typeof (item.content.text) === 'object' && <div className={`text1 ${item.role === 'user' ? styles.userInfo : ''}`}>{item.content.text.map((item1: any, index1: number) => (<div key={index1} className={`${(item1.color === 'orange' && index === contentTalk.length - 1) ? 'orange' : 'green'} ${index1 === item.content.text.length - 1 && styles.lastItem}`}>
                                                 {(item1.color === 'orange' && index === contentTalk.length - 1 && item1.event_step !== '') ?
                                                     (<div style={{ display: 'flex', alignItems: 'center', marginTop: '5px' }}>{lottieAnimShow && (
