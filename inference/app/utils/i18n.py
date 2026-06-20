@@ -13,7 +13,6 @@ __all__ = [
     "get_i18n_cache",
     "get_i18n_checksum",
     "collect_i18n_values",
-    "clear_i18n_cache",
 ]
 
 __i18n: Dict[str, str] = {}
@@ -74,14 +73,3 @@ def get_i18n_checksum() -> str:
 def collect_i18n_values(yaml_content: str):
     pattern = re.compile(r"i18n:[\w_]+")
     return pattern.findall(yaml_content)
-
-
-def clear_i18n_cache():
-    """
-    Clear all i18n translation cache and reset checksum.
-    """
-    global __i18n, __i18n_checksum
-
-    __i18n.clear()
-    __i18n_checksum = ""
-    logger.info("i18n cache cleared")

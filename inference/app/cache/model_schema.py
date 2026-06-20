@@ -19,7 +19,6 @@ __all__ = [
     "get_model_schema_by_provider",
     "get_model_schema_cache",
     "get_model_schema_checksum",
-    "clear_model_schema_cache",
 ]
 
 
@@ -104,17 +103,3 @@ def get_model_schema_cache() -> List[Dict]:
 
 def get_model_schema_checksum() -> str:
     return __model_schema_checksum
-
-
-def clear_model_schema_cache():
-    """
-    Clear all model schema data caches and reset state.
-    """
-    global _model_schemas, _model_schema_dict, _provider_model_schema_dict, __model_schema_cache, __model_schema_checksum
-
-    _model_schemas.clear()
-    _model_schema_dict.clear()
-    _provider_model_schema_dict.clear()
-    __model_schema_cache.clear()
-    __model_schema_checksum = ""
-    logger.info("Model schema cache cleared")

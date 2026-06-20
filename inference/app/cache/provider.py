@@ -17,7 +17,6 @@ __all__ = [
     "load_provider_data",
     "get_provider_cache",
     "get_provider_checksum",
-    "clear_provider_cache",
 ]
 
 __providers: List = []
@@ -138,16 +137,3 @@ def get_provider_checksum() -> str:
     :return: the provider checksum.
     """
     return __provider_checksum
-
-
-def clear_provider_cache():
-    """
-    Clear all provider data caches and reset state.
-    """
-    global __providers, __provider_dict, __providers_cache, __provider_checksum
-
-    __providers.clear()
-    __provider_dict.clear()
-    __providers_cache.clear()
-    __provider_checksum = ""
-    logger.info("Provider cache cleared")

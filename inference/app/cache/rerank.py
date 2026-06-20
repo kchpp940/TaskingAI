@@ -5,12 +5,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-__all__ = [
-    "get_rerank_model",
-    "load_all_rerank_models",
-    "clear_rerank_models",
-]
-
 # Dictionary to store instantiated models
 models = {}
 
@@ -47,11 +41,3 @@ def load_all_rerank_models(provider_ids: List[str]):
                 logger.info(f"Loaded rerank models from {provider_id}")
             except Exception as e:
                 logger.error(f"load_all_rerank_models: Error loading rerank models from {provider_id}: {e}")
-
-
-def clear_rerank_models():
-    """
-    Clear all rerank model instances.
-    """
-    models.clear()
-    logger.info("Rerank model instances cleared")

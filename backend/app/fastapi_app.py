@@ -1,5 +1,6 @@
 import logging
 from fastapi import FastAPI
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from starlette.middleware.cors import CORSMiddleware
 from tkhelper.error.exception_handlers import *
 from tkhelper.utils import init_logger
@@ -8,30 +9,48 @@ from contextlib import asynccontextmanager
 
 init_logger()
 logger = logging.getLogger(__name__)
+_scheduler = AsyncIOScheduler()
+
+
+async def sync_data(first_sync=False):
+    from app.services.model import sync_model_schema_data
+    from app.services.tool import sync_plugin_data
+
+    try:
+        logger.info("Syncing model schema data...")
+        await sync_model_schema_data()
+        logger.info("Syncing plugin data...")
+        await sync_plugin_data()
+    except:
+        logger.error("Failed to sync model schema data.")
+        if first_sync:
+            raise
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    from app.lifecycle import manager
+    from app.database import close_database, init_database
+    from app.services.auth.admin import create_default_admin_if_needed
+    from app.config import CONFIG
 
-    startup_ok = await manager.run_startup()
-    manager.attach_to_app(app)
+    try:
+        logger.info("fastapi app startup...")
 
-    if not startup_ok:
-        raise RuntimeError(
-            f"Service failed to start. Critical initialization failed. "
-            f"Failed phase: {manager.state.failed_phase}, "
-            f"reason: {manager.state.failure_reason}"
-        )
+        logger.info("start plugin cache scheduler...")
+        _scheduler.add_job(sync_data, "interval", minutes=1)
+        _scheduler.start()
+        # first sync
+        await sync_data(first_sync=True)
 
-    if manager.degraded_services:
-        logger.warning(
-            f"Service starting in degraded mode: {manager.degraded_services}"
-        )
+        await init_database()
+        if CONFIG.WEB:
+            await create_default_admin_if_needed()
 
-    yield
+        yield
 
-    await manager.run_shutdown()
+    finally:
+        logger.info("fastapi app shutdown...")
+        await close_database()
 
 
 def create_app():
@@ -47,6 +66,7 @@ def create_app():
         os.makedirs(imgs_volume_path)
     app.mount("/imgs", StaticFiles(directory=imgs_volume_path), name="imgs")
 
+    # add exception handlers
     add_exception_handlers(app)
 
     app.add_middleware(
