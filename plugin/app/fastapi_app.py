@@ -5,7 +5,6 @@ from starlette.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from starlette_prometheus import metrics, PrometheusMiddleware
 from app.routes import routes
-from config import CONFIG
 import logging
 import os
 from app.error.exception_handlers import *
@@ -15,9 +14,7 @@ from app.cache import (
     load_plugin_data,
     load_all_plugin_handlers,
     set_i18n_checksum,
-    init_artifact_cache,
 )
-from app.cache.connection import EnhancedRedisConnection
 
 import warnings
 
@@ -51,22 +48,6 @@ async def lifespan(app: FastAPI):
         bundle_plugin_ids = load_plugin_data(bundle_ids)
         load_all_plugin_handlers(bundle_plugin_ids)
         set_i18n_checksum()
-
-        # Initialize artifact cache
-        if CONFIG.ENABLE_ARTIFACT_CACHE and CONFIG.REDIS_URL:
-            try:
-                redis_conn = await EnhancedRedisConnection.get_instance(
-                    url=CONFIG.REDIS_URL,
-                    name="plugin_artifact",
-                )
-                init_artifact_cache(redis_conn, ttl=CONFIG.ARTIFACT_CACHE_TTL)
-                logger.info(f"Artifact cache initialized with Redis (TTL={CONFIG.ARTIFACT_CACHE_TTL}s)")
-            except Exception as e:
-                logger.warning(f"Failed to initialize Redis artifact cache: {e}, using memory fallback")
-                init_artifact_cache(EnhancedRedisConnection(), ttl=CONFIG.ARTIFACT_CACHE_TTL)
-        elif CONFIG.ENABLE_ARTIFACT_CACHE:
-            logger.info("Artifact cache enabled without Redis, using memory fallback")
-            init_artifact_cache(EnhancedRedisConnection(), ttl=CONFIG.ARTIFACT_CACHE_TTL)
 
         yield
 

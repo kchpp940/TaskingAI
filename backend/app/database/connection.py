@@ -5,14 +5,12 @@ from app.config import CONFIG
 from tkhelper.database.boto3.client import StorageClient
 from tkhelper.database.postgres import PostgresDatabasePool
 from tkhelper.database.redis import RedisConnection
-from tkhelper.cache import EnhancedRedisConnection
 
 logger = logging.Logger(__name__)
 
 __all__ = [
     "postgres_pool",
     "redis_conn",
-    "enhanced_redis_conn",
     "boto3_client",
     "init_database",
     "close_database",
@@ -29,7 +27,6 @@ postgres_pool = PostgresDatabasePool(
 )
 
 redis_conn = RedisConnection(url=CONFIG.REDIS_URL)
-enhanced_redis_conn = EnhancedRedisConnection(url=CONFIG.REDIS_URL, name="backend")
 boto3_client = StorageClient(
     service_name=CONFIG.OBJECT_STORAGE_TYPE,
     endpoint_url=CONFIG.S3_ENDPOINT,
@@ -49,9 +46,6 @@ async def init_database():
     logger.info("Initializing redis connection..")
     await redis_conn.init()
 
-    logger.info("Initializing enhanced redis connection..")
-    await enhanced_redis_conn.init()
-
 
 # close postgres db pool instance
 async def close_database():
@@ -60,6 +54,3 @@ async def close_database():
 
     logger.info("Closing redis connection..")
     await redis_conn.close()
-
-    logger.info("Closing enhanced redis connection..")
-    await enhanced_redis_conn.close()

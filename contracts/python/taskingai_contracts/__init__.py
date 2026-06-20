@@ -1,19 +1,5 @@
-"""
-Shared Artifact Schema Validator (Plugin Compatibility Layer)
-==============================================================
-
-This module is a backward-compatibility wrapper around the shared
-taskingai_contracts package. All new code should import directly from
-taskingai_contracts.artifact instead.
-
-The single source of truth is: contracts/python/taskingai_contracts/
-
-Usage:
-    from app.utils.artifact_schema_validator import validate_artifact, validate_artifact_list
-
-    # For new code, prefer:
-    from taskingai_contracts import validate_artifact, validate_artifact_list
-"""
+__VERSION__ = "1.0.0"
+__version__ = __VERSION__
 
 from taskingai_contracts.artifact import (
     validate_artifact,
@@ -33,6 +19,8 @@ from taskingai_contracts.artifact import (
 )
 
 __all__ = [
+    "__VERSION__",
+    "__version__",
     "validate_artifact",
     "validate_artifact_list",
     "validate_artifact_model",

@@ -1,22 +1,39 @@
-# Start with a Node.js 18.18 image as the build environment
+# ============================================================
+# TaskingAI Frontend Dockerfile
+# Build context: project root (docker build -f frontend/Dockerfile .)
+# ============================================================
+
+# Stage 1: Build the application
 FROM node:18.18 as build-stage
 
-# Set the working directory in the Docker container
 WORKDIR /app
 
-# Copy package.json and package-lock.json (if available) to the working directory
-COPY package*.json ./
+# ============================================================
+# Step 1: Copy shared contracts package first (cached layer)
+# ============================================================
+COPY contracts/npm /app/contracts/npm
 
-# Install dependencies defined in package.json
+# ============================================================
+# Step 2: Copy frontend dependencies (cached layer)
+# ============================================================
+COPY frontend/package.json /app/package.json
+COPY frontend/package-lock.json /app/package-lock.json
+COPY frontend/yarn.lock /app/yarn.lock
+
+# Install dependencies
 RUN npm install
 
-# Copy the rest of your app's source code from your host to your image filesystem
-COPY . .
+# ============================================================
+# Step 3: Copy frontend source code and build
+# ============================================================
+COPY frontend /app
 
 # Build the application for production
 RUN npm run build
 
-# Start with a lightweight version of Nginx on Alpine Linux
+# ============================================================
+# Stage 2: Serve with Nginx
+# ============================================================
 FROM nginx:alpine
 
 # Copy the build artifacts from the previous stage to the Nginx server directory
@@ -37,7 +54,7 @@ RUN echo $'server {\n\
     }\n\
 }' > /etc/nginx/conf.d/default.conf
 
-# Expose port 80 to the Docker host, so it can be mapped to the Docker container
+# Expose port 80 to the Docker host
 EXPOSE 80
 
 # Start Nginx when the container is launched and keep it running
