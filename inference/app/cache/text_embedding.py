@@ -8,6 +8,12 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+__all__ = [
+    "get_text_embedding_model",
+    "load_all_text_embedding_models",
+    "clear_text_embedding_models",
+]
+
 # Dictionary to store instantiated models
 models = {}
 
@@ -46,3 +52,11 @@ def load_all_text_embedding_models(provider_ids: List[str]):
                 logger.error(
                     f"load_all_text_embedding_models: Error loading text embedding models from {provider_id}: {e}"
                 )
+
+
+def clear_text_embedding_models():
+    """
+    Clear all text embedding model instances.
+    """
+    models.clear()
+    logger.info("Text embedding model instances cleared")

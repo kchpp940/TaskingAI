@@ -5,7 +5,6 @@ on:
     branches: ["master"]
     paths:
       - "plugin/**"
-      - "contracts/**"
       - "!**.md"
       - "!**.svg"
       - "!**.jpg"
@@ -14,8 +13,6 @@ on:
     branches: ["master"]
     paths:
       - ".github/workflows/deploy-plugin.yml"
-      - "plugin/**"
-      - "contracts/**"
 env:
   WORK_DIR: plugin
   ECR_REPOSITORY: plugin
@@ -31,6 +28,9 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ env.WORK_DIR }}
     environment: test
     if: github.repository == 'TaskingAI/TaskingAI'
     steps:
@@ -57,10 +57,8 @@ jobs:
           python-version: 3.x
 
       - name: Install Dependencies
-        run: |
-          pip install -e contracts/python
-          pip install -e common/python
-          pip install -r plugin/requirements.txt
+        working-directory: plugin
+        run: pip install -r requirements.txt
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
@@ -86,20 +84,20 @@ jobs:
           AWS_REGION: ${{ secrets.AWS_REGION_TEST }}
 
       - name: Build Docker image
+        working-directory: plugin
         env:
           ECR_REGISTRY: ${{ env.ECR_REGISTRY }}
         run: |
-          docker build -f plugin/Dockerfile \
-            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
           echo "Build success: ${ECR_REGISTRY}/$ECR_REPOSITORY:${IMAGE_TAG}"
 
       - name: Run Local Docker image
+        working-directory: plugin
         env:
           PLUGIN_BUNDLE_CREDENTIALS: ${{ secrets.PLUGIN_BUNDLE_CREDENTIALS }}
           AES_ENCRYPTION_KEY: ${{ env.AES_ENCRYPTION_KEY }}
           TEST_S3_SECRET_R2: ${{ secrets.TEST_S3_SECRET_R2 }}
           ECR_REGISTRY: ${{ env.ECR_REGISTRY }}
-        working-directory: plugin
         run: |
           echo "$PLUGIN_BUNDLE_CREDENTIALS" > .env
           echo "$TEST_S3_SECRET_R2" >> .env

@@ -5,7 +5,6 @@ on:
     branches: ["master"]
     paths:
       - "backend/**"
-      - "contracts/**"
       - "!**.md"
       - "!**.svg"
       - "!**.jpg"
@@ -14,8 +13,6 @@ on:
     branches: ["master"]
     paths:
       - ".github/workflows/deploy-backend.yml"
-      - "backend/**"
-      - "contracts/**"
 
 env:
   WORK_DIR: backend
@@ -33,6 +30,9 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ env.WORK_DIR }}
     environment: test
     steps:
       ##################################################################
@@ -47,7 +47,6 @@ jobs:
 
       - name: Read Version
         id: version
-        working-directory: backend
         run: |
           IMAGE_TAG=$(python -c "from app import __VERSION__; import os; print(__VERSION__)")
           echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
@@ -83,29 +82,20 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Install Python shared packages (contracts + common)
-        run: |
-          pip install -e contracts/python
-          pip install -e common/python
-
       - name: Install Python dependencies
-        working-directory: backend
         run: pip install -r requirements.txt
 
       - name: Install Test Dependencies
-        working-directory: backend
         run: pip install -r test_requirements.txt
 
       - name: Download nltk data
-        working-directory: backend
         run: |
           mkdir nltk_data
           python -m nltk.downloader -d nltk_data punkt
 
       - name: Build Docker image
         run: |
-          docker build -f backend/Dockerfile \
-            -t $ECR_REGISTRY/$ECR_REPOSITORY:${{ env.IMAGE_TAG }} .
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:${{ env.IMAGE_TAG }} .
           echo "Build success: $ECR_REGISTRY/$ECR_REPOSITORY:${{ env.IMAGE_TAG }}"
 
       - name: Create Docker network
@@ -182,18 +172,15 @@ jobs:
         env:
           INFERENCE_PROVIDER_CREDENTIALS: ${{ secrets.INFERENCE_PROVIDER_CREDENTIALS }}
           PLUGIN_BUNDLE_CREDENTIALS: ${{ secrets.PLUGIN_BUNDLE_CREDENTIALS }}
-        working-directory: backend
         run: |
           echo "$INFERENCE_PROVIDER_CREDENTIALS" >> .env
           echo "$PLUGIN_BUNDLE_CREDENTIALS" >> .env
           sleep 10
 
       - name: Run WEB Tests
-        working-directory: backend
         run: bash ./run_web_test.sh
 
       - name: Run R2 API Tests
-        working-directory: backend
         run: bash ./run_api_test.sh
 
       - name: Stop Docker container
@@ -221,7 +208,6 @@ jobs:
           $ECR_REGISTRY/$ECR_REPOSITORY:${{ env.IMAGE_TAG }}
 
       - name: Run AWS API Tests
-        working-directory: backend
         run: bash ./run_api_test.sh
 
       - name: Push Docker image to Amazon ECR

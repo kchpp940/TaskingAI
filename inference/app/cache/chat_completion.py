@@ -7,6 +7,7 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "get_chat_completion_model",
     "load_all_chat_completion_models",
+    "clear_chat_completion_models",
 ]
 
 models = {}
@@ -46,3 +47,11 @@ def load_all_chat_completion_models(provider_ids: List[str]):
                 logger.info(f"Loaded chat completion models from {provider_id}")
             except Exception as e:
                 logger.error(f"load_all_chat_completion_models: Error loading chat completion models from {provider_id}: {e}")
+
+
+def clear_chat_completion_models():
+    """
+    Clear all chat completion model instances.
+    """
+    models.clear()
+    logger.info("Chat completion model instances cleared")

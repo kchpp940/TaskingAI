@@ -8,29 +8,18 @@ from app.routes import routes
 import logging
 import os
 from app.error.exception_handlers import *
-from app.cache import (
-    load_bundle_data,
-    load_all_bundle_handlers,
-    load_plugin_data,
-    load_all_plugin_handlers,
-    set_i18n_checksum,
-)
 
 import warnings
 
 warnings.filterwarnings("ignore", module="pydantic")
 
-# Retrieve the log level from the environment variables (defaulting to INFO).
 log_level = os.environ.get("LOG_LEVEL", "INFO")
 
-# Create a logger object.
 logger = logging.getLogger()
 logger.setLevel(log_level)
 
-# Configure the log handler and format.
 formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
-# Create a console handler.
 console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.DEBUG)
 console_handler.setFormatter(formatter)
@@ -39,21 +28,26 @@ logger.addHandler(console_handler)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from app.lifecycle import manager
 
-    try:
-        logger.info("fastapi app startup...")
-        logger.info("load all bundles and plugins")
-        bundle_ids = load_bundle_data()
-        load_all_bundle_handlers(bundle_ids)
-        bundle_plugin_ids = load_plugin_data(bundle_ids)
-        load_all_plugin_handlers(bundle_plugin_ids)
-        set_i18n_checksum()
+    startup_ok = await manager.run_startup()
+    manager.attach_to_app(app)
 
-        yield
+    if not startup_ok:
+        raise RuntimeError(
+            f"Service failed to start. Critical initialization failed. "
+            f"Failed phase: {manager.state.failed_phase}, "
+            f"reason: {manager.state.failure_reason}"
+        )
 
-    finally:
+    if manager.degraded_services:
+        logger.warning(
+            f"Service starting in degraded mode: {manager.degraded_services}"
+        )
 
-        logger.info("fastapi app shutdown...")
+    yield
+
+    await manager.run_shutdown()
 
 
 def init_route_logger(filters: List[str]):
@@ -63,12 +57,9 @@ def init_route_logger(filters: List[str]):
         handler = logger.handlers[0]
         handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
     else:
-        # create a logging format
         formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-        # create a stream handler
         stream_handler = logging.StreamHandler()
         stream_handler.setFormatter(formatter)
-        # add the stream handler to the logger
         logger.addHandler(stream_handler)
 
     class IgnoreRouteLogFilter(logging.Filter):

@@ -1,9 +1,11 @@
 import importlib
 from typing import List, Dict
+import logging
 
 __all__ = [
     "get_bundle_handler",
     "load_all_bundle_handlers",
+    "clear_bundle_handlers",
 ]
 
 # Dictionary to store instantiated plugins
@@ -56,4 +58,13 @@ def load_all_bundle_handlers(bundle_ids: List[str]):
 
     for bundle_id in bundle_ids:
         get_bundle_handler(bundle_id)
+
+
+def clear_bundle_handlers():
+    """
+    Clear all bundle handler instances.
+    """
+    __bundle_handlers.clear()
+    logger = logging.getLogger(__name__)
+    logger.info("Bundle handler instances cleared")
 

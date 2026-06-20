@@ -14,6 +14,7 @@ __all__ = [
     "load_plugin_data",
     "get_plugin_cache",
     "get_plugin_checksum",
+    "clear_plugin_cache",
 ]
 
 __plugins: List[Plugin] = []
@@ -120,3 +121,17 @@ def get_plugin_checksum() -> str:
     :return: the plugin checksum.
     """
     return __plugin_schema_checksum
+
+
+def clear_plugin_cache():
+    """
+    Clear all plugin data caches and reset state.
+    """
+    global __plugins, __bundle_plugin_dict, __bundle_plugin_list, __plugin_cache, __plugin_schema_checksum
+
+    __plugins.clear()
+    __bundle_plugin_dict.clear()
+    __bundle_plugin_list.clear()
+    __plugin_cache.clear()
+    __plugin_schema_checksum = ""
+    logger.info("Plugin cache cleared")

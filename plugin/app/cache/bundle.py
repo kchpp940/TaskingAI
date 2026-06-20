@@ -16,6 +16,7 @@ __all__ = [
     "load_bundle_data",
     "get_bundle_cache",
     "get_bundle_checksum",
+    "clear_bundle_cache",
 ]
 
 __bundles: List = []
@@ -139,3 +140,16 @@ def get_bundle_checksum() -> str:
     :return: the bundle checksum.
     """
     return __bundle_checksum
+
+
+def clear_bundle_cache():
+    """
+    Clear all bundle data caches and reset state.
+    """
+    global __bundles, __bundle_dict, __bundles_cache, __bundle_checksum
+
+    __bundles.clear()
+    __bundle_dict.clear()
+    __bundles_cache.clear()
+    __bundle_checksum = ""
+    logger.info("Bundle cache cleared")
