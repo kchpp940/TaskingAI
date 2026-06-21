@@ -9,7 +9,8 @@ import { useEffect, useState, useRef } from 'react'
 import ModelModal from '../modelModal/index'
 import { ChildRefType } from '../../constant/index.ts'
 import ModalTable from '../modalTable/index'
-import { getModelsList } from '../../axios/models.ts'
+import { modelService } from '@/api'
+import type { ModelVM } from '@/api'
 import { useDispatch } from 'react-redux';
 import { fetchModelsData } from '../../Redux/actions.ts'
 import { valueLimit, } from '@/constant/assistant.ts'
@@ -27,8 +28,8 @@ function ModelComponent(props: any) {
     const [options, setOptions] = useState([])
     const [hasModelMore, setHasModelMore] = useState(false)
     const [modelLimit, setModelLimit] = useState(20)
-    const [selectedRows, setSelectedRows] = useState<any[]>([])
-    const [detailSelectedRowInfo, setDetailSelectedRowInfo] = useState<any>({})
+    const [selectedRows, setSelectedRows] = useState<string[]>([])
+    const [detailSelectedRowInfo, setDetailSelectedRowInfo] = useState<ModelVM | null>(null)
     useEffect(() => {
         fetchModelsList()
     }, [])
@@ -56,14 +57,8 @@ function ModelComponent(props: any) {
             ...value
         }
         try {
-            const res: any = await getModelsList(params, 'chat_completion')
-            const data = res.data.map((item: any) => {
-                return {
-                    ...item,
-                    key: item.model_id
-                }
-            })
-            setOptions(data)
+            const res = await modelService.listByType('chat_completion', params)
+            setOptions(res.data)
             setHasModelMore(res.has_more)
         } catch (error) {
             console.log(error)
@@ -80,7 +75,7 @@ function ModelComponent(props: any) {
     const handleRecordsSelected = (value: any, selectedRows: any[]) => {
         setRecordsSelected(value)
         setDetailSelectedRowInfo(selectedRows)
-        const tag = selectedRows.map(item => (item.name + '-' + item.model_id))
+        const tag = selectedRows.map(item => (item.name + '-' + item.id))
         setSelectedRows(tag)
     }
     const handleModalConfirm =async () => {
@@ -108,7 +103,7 @@ function ModelComponent(props: any) {
                     </div>
                 </div>
             ]} title={t('projectSelectModel')} open={props.modalTableOpen} width={1000} className={`modal-inner-table ${styles['retrieval-model']}`}>
-                <ModalTable onOpenDrawer={handleCreateModelId} title='New model' name="model" updatePrevButton={updateModelPrevButton} defaultSelectedRowKeys={selectedRows} handleRecordsSelected={handleRecordsSelected} ifSelect={true} columns={modelsTableColumn} hasMore={hasModelMore} id='model_id' dataSource={options} onChildEvent={handleChildModelEvent}></ModalTable>
+                <ModalTable onOpenDrawer={handleCreateModelId} title='New model' name="model" updatePrevButton={updateModelPrevButton} defaultSelectedRowKeys={selectedRows} handleRecordsSelected={handleRecordsSelected} ifSelect={true} columns={modelsTableColumn} hasMore={hasModelMore} id='id' dataSource={options} onChildEvent={handleChildModelEvent}></ModalTable>
             </Modal>
             <ModelModal type='chat_completion' ref={childRef} open={modelOne} handleSetModelConfirmOne={handleSetModelConfirmOne} handleSetModelOne={handleModalCancel} getOptionsList={fetchModelsList} modelType='chat_completion'></ModelModal>
         </>

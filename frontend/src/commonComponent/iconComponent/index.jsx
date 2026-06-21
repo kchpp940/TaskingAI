@@ -1,12 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { fetchIcon } from '@/axios';
+import { authService } from '@/api';
 import styles from './icon.module.scss'
 const IconComponent = ({ providerId }) => {
     const [iconHtml, setIconHtml] = useState('');
     useEffect(() => {
         const fetchIcon1 = async () => {
-            const res = await fetchIcon(providerId)
-            const html = await res;
+            const html = await authService.fetchIcon(providerId)
             setIconHtml(html);
         };
 

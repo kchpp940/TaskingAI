@@ -10,7 +10,7 @@ import {
   ModelCreateRequest,
   ModelUpdateRequest,
 } from '../viewmodels';
-import { adaptModel, adaptModelList, adaptModelSchema, adaptProviderList } from '../adapters';
+import { adaptModel, adaptModelList, adaptModelSchema, adaptProvider, adaptProviderList } from '../adapters';
 
 const MODEL_BASE_URL = `${API_BASE_URL}`;
 
@@ -57,10 +57,10 @@ export const modelService = {
     };
   },
 
-  async getProviderForm(providerId: string): Promise<{ credentials_schema: any }> {
+  async getProviderForm(providerId: string): Promise<ProviderVM> {
     const url = `${MODEL_BASE_URL}/providers/get?provider_id=${providerId}`;
-    const response = await httpClient.get<{ data: any }>(url);
-    return response.data;
+    const response = await httpClient.get<{ data: ProviderDto }>(url);
+    return adaptProvider(response.data);
   },
 
   async listProviders(type?: string, limit: number = 100): Promise<PaginatedResponse<ProviderVM>> {

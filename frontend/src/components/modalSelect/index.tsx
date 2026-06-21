@@ -8,8 +8,7 @@ import { Button, Modal, Radio, Select, Input, Spin } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import './modalSelect.scss'
 import { useTranslation } from 'react-i18next';
-import { getRetrievalList } from '../../axios/retrieval.ts'
-import { getActionsList } from '../../axios/actions.ts'
+import { collectionService, actionService } from '@/api'
 function ModalSelect(prop: any) {
     const { t } = useTranslation()
     const { retrievalList, collectionSelectedId, hasMore, handleNewModal, id, nameTitle, title, newTitle, handleSelectedItem, retrievalSelectedList, retrievalModal, handleClose } = prop
@@ -93,27 +92,14 @@ function ModalSelect(prop: any) {
     }
     const fetchSearchData = async (value: any) => {
         setContentLoading(true)
-        const res: any = await getRetrievalList(value)
-        const data = res.data.map((item: any) => {
-            return {
-                ...item,
-                capacity1: item.num_chunks + '/' + item.capacity,
-                key: item.collection_id
-            }
-        })
-        setContentList(data);
+        const res = await collectionService.list(value as any)
+        setContentList(res.data);
         setContentLoading(false)
     }
     const fetchActionData = async (params: any) => {
         setContentLoading(true)
-        const res: any = await getActionsList(params)
-        const data = res.data.map((item: any) => {
-            return {
-                ...item,
-                key: item.action_id,
-            }
-        })
-        setContentList(data)
+        const res = await actionService.list(params as any)
+        setContentList(res.data)
         setContentLoading(false)
     }
     return (

@@ -15,11 +15,11 @@ import EditIcon from '../../assets/img/editIcon.svg?react'
 import DeleteIcon from '../../assets/img/deleteIcon.svg?react'
 import tooltipTitle from '../../contents/tooltipTitle.tsx'
 import CommonComponents from '../../contents/index.tsx'
-import ApiErrorResponse from '@/constant/index'
 import { commonDataType } from '@/constant/assistant.ts'
 import ActionDrawer from '../actionDrawer/index.tsx';
 import { toast } from 'react-toastify';
 import { useTranslation } from "react-i18next";
+import { handleApiError } from '@/api';
 function Actions() {
     const { t } = useTranslation();
     const { actionLists } = useSelector((state: any) => state.action);
@@ -186,9 +186,7 @@ function Actions() {
             setUpdatePrevButton(true)
         } catch (error) {
             console.error(error);
-            const apiError = error as ApiErrorResponse;
-            const messageError: string = apiError.response.data.error.message;
-            toast.error(messageError)
+            handleApiError(error)
         }
 
         setOpenDrawer(false)

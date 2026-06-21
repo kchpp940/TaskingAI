@@ -37,7 +37,7 @@ interface RecordType {
 }
 interface projectIdType {
   name: string;
-  model_schema_id: string;
+  modelSchemaId: string;
   properties: any;
   type: string;
   description: string;
@@ -51,19 +51,19 @@ interface formDataType {
 
 }
 interface promptListType {
-  model_schema_id: string;
-  provider_id: string;
+  modelSchemaId: string;
+  providerId: string;
   type: string;
   name: string;
   properties: any;
   description: string
 }
 interface ModelProviderType {
-  provider_id: string;
+  providerId: string;
   name: string;
-  num_model_schemas:number,
+  numModelSchemas:number,
   description: string,
-  model_types: string[],
+  modelTypes: string[],
 }
 interface modelModalProps {
   handleSetModelOne: (value: any) => void;

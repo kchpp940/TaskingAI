@@ -6,7 +6,7 @@ import Beta from "../../assets/img/CommunityTag.svg?react";
 import { toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import style from './login.module.scss'
-import { fetchLogin } from '@/axios/index'
+import { authService, handleApiError } from '@/api'
 
 function Login() {
     const [loading, setLoading] = useState(false)
@@ -14,12 +14,12 @@ function Login() {
     const onFinish = async (val: object) => {
         setLoading(true)
         try {
-            const res = await fetchLogin(val)
-            localStorage.setItem('token', res.data.token)
+            const res = await authService.login(val as any)
+            localStorage.setItem('token', res.token)
             await navigate('/project/home')
             toast.success('Signin successful')
         } catch (error) {
-            toast.error(error.response.data.error.message)
+            handleApiError(error)
         }
         setLoading(false)
     }

@@ -33,12 +33,13 @@ export interface BundleDto {
   name: string;
   description: string;
   icon_url: string;
-  credentials_schema: Record<string, any>;
   plugins: PluginDto[];
-  developer: string;
-  registered: boolean;
   created_timestamp: number;
   updated_timestamp: number;
+  registered?: boolean;
+  num_plugins?: number;
+  developer?: string;
+  credentials_schema?: Record<string, any>;
 }
 
 export interface BundleInstanceDto {
@@ -86,7 +87,7 @@ export interface BundleInstanceVM {
   description: string;
   iconUrl: string;
   displayCredentials: Record<string, any>;
-  plugins: PluginDto[];
+  plugins: PluginVM[];
   metadata: Record<string, any>;
   createdTimestamp: number;
   updatedTimestamp: number;

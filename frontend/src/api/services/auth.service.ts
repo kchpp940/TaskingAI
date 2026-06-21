@@ -33,7 +33,8 @@ export const authService = {
 
   async fetchIcon(providerId: string): Promise<string> {
     const url = `/images/providers/icons/${providerId}.svg`;
-    return url;
+    const response = await httpClient.get<string>(url, { responseType: 'text' as any });
+    return response;
   },
 
   async getViewCode(module: string): Promise<{ data: string }> {

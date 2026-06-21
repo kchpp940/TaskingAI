@@ -83,7 +83,7 @@ function Plugins() {
             setPluginFunList(result.data)
             setHasMore(result.has_more)
         } catch (error) {
-            console.log(error)
+            handleApiError(error)
         }
         setLoading(false);
     };
@@ -139,26 +139,21 @@ function Plugins() {
         const data: any = (bundilesList.find((item: any) => item.bundleId === record.bundleId) as any)
         setBundleName(data.name)
         setBundleDesc(record.description)
-        setCredentialsSchema(data.credentials_schema)
+        setCredentialsSchema(data.credentialsSchema)
         form.setFieldsValue(record.displayCredentials)
         setResetButtonShow(true)
         setOpenEditFormDrawer(true)
 
     }
-    const handleTools = async (record: any) => {
+    const handleTools = async (record: BundleInstanceVM) => {
         setLoading(true)
         try {
             setPluginListData(record.plugins)
-            setPluginName(record.plugins[0].name)
-            setPluginDesc(record.plugins[0].description)
+            setPluginName(record.plugins?.[0]?.name || '')
+            setPluginDesc(record.plugins?.[0]?.description || '')
             setBundleName(record.name)
-            setPluginId(record.plugins[0].pluginId)
-            const inputSchematemp = record.plugins[0].input_schema
-            const arr: any[] = []
-            Object.values(inputSchematemp).forEach((item: any) => {
-                arr.push(item)
-            })
-            setInputSchema(arr)
+            setPluginId(record.plugins?.[0]?.pluginId || '')
+            setInputSchema(record.plugins?.[0]?.inputSchema || [])
             setOpenEditDrawer(true)
             setBundleId(record.bundleId)
             setIsShowBundle(false)
@@ -209,7 +204,7 @@ function Plugins() {
             }
             setUpdatePrevButton(true)
         } catch (error) {
-            console.log(error)
+            handleApiError(error)
         }
         setOpenDeleteModal(false)
     }
@@ -218,13 +213,9 @@ function Plugins() {
     const handleClickPlugin = (pluginId: string, pluginName: string) => {
         setPluginId(pluginId)
         setPluginName(pluginName)
-        setPluginDesc((pluginListData as any[]).find((item: any) => item.pluginId === pluginId).description)
-        const inputSchematemp = (pluginListData as any[]).find(item => item.pluginId === pluginId).input_schema
-        const arr: any[] = []
-        Object.values(inputSchematemp).forEach((item: any) => {
-            arr.push(item)
-        })
-        setInputSchema(arr)
+        const plugin = (pluginListData as any[]).find((item: any) => item.pluginId === pluginId)
+        setPluginDesc(plugin?.description || '')
+        setInputSchema(plugin?.inputSchema || [])
     }
     const handleValuesChange = (changedValues: object) => {
         form.validateFields(Object.keys(changedValues));
@@ -269,7 +260,7 @@ function Plugins() {
                     <div className={styles.content1}>
                         <div className={styles.left}>
                             {pluginListData.map((item: any, index) => (
-                                <div key={index} onClick={() => { handleClickPlugin(item.plugin_id, item.name) }} className={`${styles.pluginName} ${pluginId === item.plugin_id && styles.pluginId}`}>
+                                <div key={index} onClick={() => { handleClickPlugin(item.pluginId, item.name) }} className={`${styles.pluginName} ${pluginId === item.pluginId && styles.pluginId}`}>
                                     {item.name}
                                 </div>
                             ))}

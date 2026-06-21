@@ -33,7 +33,7 @@ function Retrieval() {
     const { retrievalLists } = useSelector((state: any) => state.retrieval);
     const dispatch = useDispatch();
     const [isVisible, setIsVisible] = useState(true);
-    const [record, setRecord] = useState<CollectionVM & { collection_id?: string; model_name?: string; embedding_model_id?: string; embedding_size?: number }>({} as CollectionVM & { collection_id?: string; model_name?: string; embedding_model_id?: string; embedding_size?: number })
+    const [record, setRecord] = useState<CollectionVM & { modelName?: string }>({} as CollectionVM & { modelName?: string })
 
     const { modelsTableColumn, collectionTableColumn } = CommendComponent();
     const { tooltipEditTitle, tooltipRecordTitle, tooltipMoreTitle } = tooltipTitle();
@@ -57,7 +57,7 @@ function Retrieval() {
         key: 'action',
         fixed: 'right',
         width: 157,
-        render: (_: string, record: CollectionVM & { collection_id?: string; model_name?: string; embedding_model_id?: string; embedding_size?: number }) => (
+        render: (_: string, record: CollectionVM & { modelName?: string }) => (
             <Space size="middle">
                 <div className='table-edit-icon' onClick={() => handleRecord(record, 'Records')}>
                     <Tooltip placement='bottom' color="#fff" arrow={false} overlayClassName='table-tooltip' title={tooltipRecordTitle}>
@@ -125,11 +125,13 @@ function Retrieval() {
     useEffect(() => {
         if (retrievalLists.data.length > 0) {
             const data = retrievalLists.data.map((item: any) => {
+                const modelName = options.find(m => m.id === item.embeddingModelId)?.name || item.embeddingModelId;
                 return {
                     ...item,
-                    capacityText: item.num_chunks + '/' + item.capacity,
-                    key: item.collection_id,
-                    id: item.collection_id,
+                    capacityText: item.numChunks + '/' + item.capacity,
+                    key: item.id,
+                    id: item.id,
+                    modelName,
                 }
             })
             setPromptList(data);
@@ -138,10 +140,10 @@ function Retrieval() {
             setPromptList([]);
 
         }
-    }, [retrievalLists])
+    }, [retrievalLists, options])
     const handleRecordsSelected = (value: any, selectedRows: Array<any>) => {
         setRecordsSelected(value)
-        const tag = selectedRows.map(item => (item.name + '-' + item.model_id))
+        const tag = selectedRows.map(item => (item.name + '-' + item.id))
         if (value.length === 0) {
             setSelectedRows([])
             setSelectedModelName(undefined)
@@ -171,7 +173,11 @@ function Retrieval() {
         setLoading(true);
         try {
             const { data, has_more } = await collectionService.list(params)
-            setPromptList(data);
+            const dataWithModelName = data.map(item => ({
+                ...item,
+                modelName: options.find(m => m.id === item.embeddingModelId)?.name || item.embeddingModelId,
+            }));
+            setPromptList(dataWithModelName);
             setHasMore(has_more)
 
         } catch (error) {
@@ -206,35 +212,35 @@ function Retrieval() {
         setEditDisabled(false)
         setIsVisible(false)
     }
-    const handleRecord = (val: CollectionVM & { collection_id?: string; model_name?: string; embedding_model_id?: string; embedding_size?: number }, recordOrChunk: string) => {
+    const handleRecord = (val: CollectionVM & { modelName?: string }, recordOrChunk: string) => {
         setIsVisible(false)
-        setCollectionRecordId(val.collection_id)
+        setCollectionRecordId(val.id)
         const routeData = recordOrChunk.toLowerCase()
-        navigate(`/project/collections/${val.collection_id}/${routeData}`)
+        navigate(`/project/collections/${val.id}/${routeData}`)
         setDrawerName(val.name || 'Untitled Collection')
         setRecordOrChunk(recordOrChunk)
         setRecordOpen(true)
     }
-    const handleEdit = (val: CollectionVM & { collection_id?: string; model_name?: string; embedding_model_id?: string; embedding_size?: number }) => {
+    const handleEdit = (val: CollectionVM & { modelName?: string }) => {
         setDrawerTitle('Edit Collection')
         setDrawerName(val.name ? val.name : undefined)
         setEditDisabled(true)
         setIsVisible(false)
-        setSelectedRows(val.model_name ? [val.model_name + '-' + val.embedding_model_id] : ['Untitled Model' + '-' + val.embedding_model_id])
-        setSelectedModelName(val.model_name ? [val.model_name] : ['Untitled Model'])
+        setSelectedRows(val.modelName ? [val.modelName + '-' + val.embeddingModelId] : ['Untitled Model' + '-' + val.embeddingModelId])
+        setSelectedModelName(val.modelName ? [val.modelName] : ['Untitled Model'])
         setDescriptionText(val.description)
-        setCollectionId(val.collection_id)
-        setEmbeddingSize(val.embedding_size)
+        setCollectionId(val.id)
+        setEmbeddingSize(val.embeddingSize)
         setSelectValue(val.capacity)
         setOpenDrawer(true)
     }
 
-    const handleDelete = (val: CollectionVM & { collection_id?: string; model_name?: string; embedding_model_id?: string; embedding_size?: number }) => {
+    const handleDelete = (val: CollectionVM & { modelName?: string }) => {
         setOpenDeleteModal(true)
         setIsVisible(false)
 
         setDeleteValue(val.name)
-        setCollectionId(val.collection_id)
+        setCollectionId(val.id)
     }
     const onDeleteCancel = () => {
         setIsVisible(true)
@@ -261,9 +267,7 @@ function Retrieval() {
             setUpdateRetrievalPrevButton(true)
 
         } catch (error) {
-            const apiError = error as any;
-            const errorMessage: string = apiError.response.data.error.message;
-            toast.error(errorMessage)
+            handleApiError(error)
         }
     }
 
@@ -301,9 +305,7 @@ function Retrieval() {
             setUpdateRetrievalPrevButton(true)
 
         } catch (error) {
-            const apiError = error as any;
-            const errorMessage: string = apiError.response.data.error.message;
-            toast.error(errorMessage)
+            handleApiError(error)
         }
     }
     const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
