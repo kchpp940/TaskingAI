@@ -38,7 +38,22 @@ export interface ActionEndpointInfo {
   endpoint: string;
 }
 
-export type ActionVM = ActionDto & {
+export interface ActionVM {
+  id: string;
+  name: string;
+  operationId: string;
+  description: string;
+  url: string;
+  method: ActionMethod;
+  pathParamSchema?: Record<string, ActionParam>;
+  queryParamSchema?: Record<string, ActionParam>;
+  bodyParamSchema?: Record<string, ActionParam>;
+  bodyType: ActionBodyType;
+  functionDef: Record<string, any>;
+  openapiSchema: Record<string, any>;
+  authentication: ActionAuthentication;
+  createdTimestamp: number;
+  updatedTimestamp: number;
   key: string;
   methodLabel: string;
   endpointInfo: ActionEndpointInfo;
@@ -47,7 +62,7 @@ export type ActionVM = ActionDto & {
   hasBodyParams: boolean;
   createdAt: string;
   updatedAt: string;
-};
+}
 
 export interface ActionBulkCreateRequest {
   openapi_schema: Record<string, any>;

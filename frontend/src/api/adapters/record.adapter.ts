@@ -69,7 +69,16 @@ export const adaptRecord = (dto: RecordDto): RecordVM => {
   const displayTitle = dto.title || DEFAULT_DISPLAY_TITLE;
 
   return {
-    ...dto,
+    id: dto.record_id,
+    collectionId: dto.collection_id,
+    title: dto.title,
+    status: dto.status,
+    numChunks: dto.num_chunks,
+    type: dto.type,
+    content: dto.content,
+    metadata: dto.metadata,
+    createdTimestamp: dto.created_timestamp,
+    updatedTimestamp: dto.updated_timestamp,
     key: dto.record_id,
     displayTitle,
     statusLabel: getRecordStatusLabel(dto.status),
@@ -90,8 +99,3 @@ export const adaptRecord = (dto: RecordDto): RecordVM => {
 export const adaptRecordList = (dtos: RecordDto[]): RecordVM[] => {
   return dtos.map(adaptRecord);
 };
-
-export const adaptRecordForTable = (vm: RecordVM): RecordVM & { key: string } => ({
-  ...vm,
-  key: vm.record_id,
-});

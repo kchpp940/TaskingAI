@@ -47,19 +47,35 @@ export interface MessageChunkDto {
   delta: string;
 }
 
-export type ChatVM = ChatDto & {
+export interface ChatVM {
+  id: string;
+  assistantId: string;
+  name: string;
+  metadata: Record<string, any>;
+  memory: Record<string, any>;
+  createdTimestamp: number;
+  updatedTimestamp: number;
   key: string;
   displayName: string;
   createdAt: string;
   updatedAt: string;
-};
+}
 
-export type MessageVM = MessageDto & {
+export interface MessageVM {
+  id: string;
+  assistantId: string;
+  chatId: string;
+  role: MessageRole;
+  content: MessageContentDto;
+  numTokens: number;
+  metadata: Record<string, any>;
+  createdTimestamp: number;
+  updatedTimestamp: number;
   roleLabel: string;
   isUser: boolean;
   isAssistant: boolean;
   createdAt: string;
-};
+}
 
 export interface MessageGenerationLogVM {
   event: string;

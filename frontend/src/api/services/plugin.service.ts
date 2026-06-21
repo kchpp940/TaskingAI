@@ -25,7 +25,7 @@ export const pluginService = {
   async listBundleInstances(params: BundleInstanceListParams = {}): Promise<PaginatedResponse<BundleInstanceVM>> {
     const query = buildListParams('bundle_instance_id', { limit: DEFAULT_LIMIT, ...params });
     const url = `${PLUGIN_BASE_URL}/bundle_instances${query ? `?${query}` : ''}`;
-    const response = await httpClient.get(url) as any as PaginatedResponse<BundleInstanceDto>;
+    const response = await httpClient.get<PaginatedResponse<BundleInstanceDto>>(url);
     return {
       data: adaptBundleInstanceList(response.data),
       has_more: response.has_more,
@@ -39,7 +39,7 @@ export const pluginService = {
       .map(([k, v]) => `${k}=${v}`)
       .join('&');
     const url = `${PLUGIN_BASE_URL}/bundles${query ? `?${query}` : ''}`;
-    const response = await httpClient.get(url) as any as PaginatedResponse<BundleDto>;
+    const response = await httpClient.get<PaginatedResponse<BundleDto>>(url);
     return {
       data: response.data.map(adaptBundle),
       has_more: response.has_more,
@@ -48,19 +48,19 @@ export const pluginService = {
 
   async getBundlePlugins(bundleId: string): Promise<PluginVM[]> {
     const url = `${PLUGIN_BASE_URL}/plugins?bundle_id=${bundleId}`;
-    const response = await httpClient.get(url) as any as { data: PluginDto[] };
+    const response = await httpClient.get<{ data: PluginDto[] }>(url);
     return adaptPluginList(response.data);
   },
 
   async createBundleInstance(params: BundleInstanceCreateRequest): Promise<BundleInstanceVM> {
     const url = `${PLUGIN_BASE_URL}/bundle_instances`;
-    const response = await httpClient.post(url, params) as any as { data: BundleInstanceDto };
+    const response = await httpClient.post<{ data: BundleInstanceDto }>(url, params);
     return adaptBundleInstance(response.data);
   },
 
   async updateBundleInstance(bundleInstanceId: string, params: BundleInstanceUpdateRequest): Promise<BundleInstanceVM> {
     const url = `${PLUGIN_BASE_URL}/bundle_instances/${bundleInstanceId}`;
-    const response = await httpClient.post(url, params) as any as { data: BundleInstanceDto };
+    const response = await httpClient.post<{ data: BundleInstanceDto }>(url, params);
     return adaptBundleInstance(response.data);
   },
 

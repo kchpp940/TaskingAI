@@ -25,7 +25,17 @@ export interface RecordDto {
   updated_timestamp: number;
 }
 
-export type RecordVM = RecordDto & {
+export interface RecordVM {
+  id: string;
+  collectionId: string;
+  title: string;
+  status: RecordStatus;
+  numChunks: number;
+  type: RecordType;
+  content: string;
+  metadata: Record<string, string>;
+  createdTimestamp: number;
+  updatedTimestamp: number;
   key: string;
   displayTitle: string;
   statusLabel: string;
@@ -40,7 +50,7 @@ export type RecordVM = RecordDto & {
   displayContent: string;
   createdAt: string;
   updatedAt: string;
-};
+}
 
 export interface RecordCreateRequest {
   type: RecordType;

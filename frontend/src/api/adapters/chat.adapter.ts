@@ -39,7 +39,13 @@ const formatEventLabel = (event: string): string => {
 
 export const adaptChat = (dto: ChatDto): ChatVM => {
   return {
-    ...dto,
+    id: dto.chat_id,
+    assistantId: dto.assistant_id,
+    name: dto.name,
+    metadata: dto.metadata,
+    memory: dto.memory,
+    createdTimestamp: dto.created_timestamp,
+    updatedTimestamp: dto.updated_timestamp,
     key: dto.chat_id,
     displayName: safeString(dto.name, 'New Chat'),
     createdAt: formatDateTime(dto.created_timestamp),
@@ -51,11 +57,17 @@ export const adaptChatList = (dtos: ChatDto[]): ChatVM[] => {
   return dtos.map(adaptChat);
 };
 
-export const adaptChatForList = (vm: ChatVM): ChatVM => vm;
-
 export const adaptMessage = (dto: MessageDto): MessageVM => {
   return {
-    ...dto,
+    id: dto.message_id,
+    assistantId: dto.assistant_id,
+    chatId: dto.chat_id,
+    role: dto.role,
+    content: dto.content,
+    numTokens: dto.num_tokens,
+    metadata: dto.metadata,
+    createdTimestamp: dto.created_timestamp,
+    updatedTimestamp: dto.updated_timestamp,
     roleLabel: getRoleLabel(dto.role),
     isUser: dto.role === 'user',
     isAssistant: dto.role === 'assistant',

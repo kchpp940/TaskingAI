@@ -1,7 +1,5 @@
 import styles from './retrieval.module.scss'
 import { PlusOutlined, RightOutlined } from '@ant-design/icons';
-import { getRetrievalList, createRetrieval, deleteRetrieval, updateRetrieval } from '../../axios/retrieval.ts'
-import { getModelsList } from '../../axios/models.ts'
 import RecordPage from '../recordPage/index';
 import { useEffect, useState, useRef } from 'react'
 import { useSelector, useDispatch } from 'react-redux';
@@ -10,7 +8,6 @@ import { fetchModelsData } from '../../Redux/actions';
 import ViewCode from '@/commonComponent/viewCode/index.tsx'
 import MoreIcon from '@/assets/img/moreIcon.svg?react'
 import EditIcon from '../../assets/img/editIcon.svg?react'
-import { getViewCode } from '@/axios/index'
 import ModalTable from '../modalTable/index';
 import ModelModal from '../modelModal/index'
 import CommendComponent from '../../contents/index.tsx'
@@ -18,7 +15,8 @@ import { ChildRefType } from '../../constant/index.ts'
 import ChunkPage from '../chunkPage/index.tsx';
 import ModalFooterEnd from '../modalFooterEnd/index'
 import { toast } from 'react-toastify'
-import ApiErrorResponse from '@/constant/index'
+import { collectionService, modelService, authService, handleApiError } from '@/api';
+import { CollectionVM, ModelVM } from '@/api/viewmodels';
 import tooltipTitle from '../../contents/tooltipTitle'
 import { useNavigate } from 'react-router-dom';
 import DeleteModal from '../deleteModal/index.tsx'
@@ -34,7 +32,7 @@ function Retrieval() {
     const { retrievalLists } = useSelector((state: any) => state.retrieval);
     const dispatch = useDispatch();
     const [isVisible, setIsVisible] = useState(true);
-    const [record, setRecord] = useState<any>({})
+    const [record, setRecord] = useState<CollectionVM>({} as CollectionVM)
 
     const { modelsTableColumn, collectionTableColumn } = CommendComponent();
     const { tooltipEditTitle, tooltipRecordTitle, tooltipMoreTitle } = tooltipTitle();
@@ -102,7 +100,7 @@ function Retrieval() {
     const [recordsSelected, setRecordsSelected] = useState([])
     const [selectedRows, setSelectedRows] = useState<string[]>([])
     const [selectedModelName, setSelectedModelName] = useState<any>('')
-    const [options, setOptions] = useState([])
+    const [options, setOptions] = useState<ModelVM[]>([])
     const childRef = useRef<ChildRefType | null>(null);
     const [selectValue, setSelectValue] = useState(1000)
     const [modelOne, setModelOne] = useState(false);
@@ -118,7 +116,7 @@ function Retrieval() {
         }
         fetchModelsList(params)
         const fetchCodeData = async () => {
-            const res = await getViewCode('collection')
+            const res = await authService.getViewCode('collection')
             setViewCodeData(res.data)
         }
         fetchCodeData()
@@ -128,8 +126,9 @@ function Retrieval() {
             const data = retrievalLists.data.map((item: any) => {
                 return {
                     ...item,
-                    capacity1: item.num_chunks + '/' + item.capacity,
+                    capacityText: item.num_chunks + '/' + item.capacity,
                     key: item.collection_id,
+                    id: item.collection_id,
                 }
             })
             setPromptList(data);
@@ -170,19 +169,12 @@ function Retrieval() {
     const fetchData = async (params: Record<string, string | number>) => {
         setLoading(true);
         try {
-            const res: any = await getRetrievalList(params)
-            const data = res.data.map((item: any) => {
-                return {
-                    ...item,
-                    capacity1: item.num_chunks + '/' + item.capacity,
-                    key: item.collection_id,
-                }
-            })
+            const { data, has_more } = await collectionService.list(params)
             setPromptList(data);
-            setHasMore(res.has_more)
+            setHasMore(has_more)
 
         } catch (error) {
-            console.log(error)
+            handleApiError(error)
         }
         setLoading(false);
     };
@@ -191,17 +183,11 @@ function Retrieval() {
             dispatch(fetchModelsData(20) as any)
         }
         try {
-            const res: any = await getModelsList(params, 'text_embedding')
-            const data = res.data.map((item: any) => {
-                return {
-                    ...item,
-                    key: item.model_id,
-                }
-            })
-            setModelHasMore(res.has_more)
+            const { data, has_more } = await modelService.listByType('text_embedding', params)
+            setModelHasMore(has_more)
             setOptions(data)
         } catch (error) {
-            console.log(error)
+            handleApiError(error)
         }
     }
     const handleCreatePrompt = () => {

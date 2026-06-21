@@ -35,6 +35,8 @@ export interface BundleDto {
   icon_url: string;
   credentials_schema: Record<string, any>;
   plugins: PluginDto[];
+  developer: string;
+  registered: boolean;
   created_timestamp: number;
   updated_timestamp: number;
 }
@@ -70,16 +72,31 @@ export interface BundleVM {
   name: string;
   description: string;
   iconUrl: string;
+  registered?: boolean;
+  numPlugins?: number;
+  developer?: string;
+  credentialsSchema?: Record<string, any>;
+  plugins?: PluginVM[];
 }
 
-export type BundleInstanceVM = BundleInstanceDto & {
+export interface BundleInstanceVM {
+  id: string;
+  bundleId: string;
+  name: string;
+  description: string;
+  iconUrl: string;
+  displayCredentials: Record<string, any>;
+  plugins: PluginDto[];
+  metadata: Record<string, any>;
+  createdTimestamp: number;
+  updatedTimestamp: number;
   key: string;
   displayName: string;
   hasCredentials: boolean;
   pluginCount: number;
   createdAt: string;
   updatedAt: string;
-};
+}
 
 export interface PluginParameterVM {
   key: string;

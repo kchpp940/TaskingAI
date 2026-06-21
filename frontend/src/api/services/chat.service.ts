@@ -28,7 +28,7 @@ export const chatService = {
   async listChats(assistantId: string, params: ChatListParams = {}): Promise<PaginatedResponse<ChatVM>> {
     const query = buildListParams('', { limit: DEFAULT_LIMIT, ...params });
     const url = `${CHAT_BASE_URL}/assistants/${assistantId}/chats${query ? `?${query}` : ''}`;
-    const response = await httpClient.get(url) as any as PaginatedResponse<ChatDto>;
+    const response = await httpClient.get<PaginatedResponse<ChatDto>>(url);
     return {
       data: adaptChatList(response.data),
       has_more: response.has_more,
@@ -37,13 +37,13 @@ export const chatService = {
 
   async getChat(assistantId: string, chatId: string): Promise<ChatVM> {
     const url = `${CHAT_BASE_URL}/assistants/${assistantId}/chats/${chatId}`;
-    const response = await httpClient.get(url) as any as { data: ChatDto };
+    const response = await httpClient.get<{ data: ChatDto }>(url);
     return adaptChat(response.data);
   },
 
   async createChat(assistantId: string, params: ChatCreateRequest = {}): Promise<ChatVM> {
     const url = `${CHAT_BASE_URL}/assistants/${assistantId}/chats`;
-    const response = await httpClient.post(url, params) as any as { data: ChatDto };
+    const response = await httpClient.post<{ data: ChatDto }>(url, params);
     return adaptChat(response.data);
   },
 
@@ -59,7 +59,7 @@ export const chatService = {
   ): Promise<PaginatedResponse<MessageVM>> {
     const query = buildListParams('', { limit: DEFAULT_LIMIT, ...params });
     const url = `${CHAT_BASE_URL}/assistants/${assistantId}/chats/${chatId}/messages${query ? `?${query}` : ''}`;
-    const response = await httpClient.get(url) as any as PaginatedResponse<MessageDto>;
+    const response = await httpClient.get<PaginatedResponse<MessageDto>>(url);
     return {
       data: adaptMessageList(response.data),
       has_more: response.has_more,
@@ -72,7 +72,7 @@ export const chatService = {
     params: MessageCreateRequest,
   ): Promise<MessageVM> {
     const url = `${CHAT_BASE_URL}/assistants/${assistantId}/chats/${chatId}/messages`;
-    const response = await httpClient.post(url, params) as any as { data: MessageDto };
+    const response = await httpClient.post<{ data: MessageDto }>(url, params);
     return adaptMessage(response.data);
   },
 
@@ -82,7 +82,7 @@ export const chatService = {
     params: MessageGenerateRequest = {},
   ): Promise<MessageVM> {
     const url = `${CHAT_BASE_URL}/assistants/${assistantId}/chats/${chatId}/generate`;
-    const response = await httpClient.post(url, params) as any as { data: MessageDto };
+    const response = await httpClient.post<{ data: MessageDto }>(url, params);
     return adaptMessage(response.data);
   },
 

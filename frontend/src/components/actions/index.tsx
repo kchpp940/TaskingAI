@@ -47,9 +47,9 @@ function Actions() {
             const data = actionLists.data.map((item: any) => {
                 return {
                     ...item,
-                    key: item.action_id,
-                    method: getFirstMethodAndEndpoint(item.openapi_schema)?.method,
-                    endpoint: getFirstMethodAndEndpoint(item.openapi_schema)?.endpoint
+                    key: item.id,
+                    method: getFirstMethodAndEndpoint(item.openapiSchema)?.method,
+                    endpoint: getFirstMethodAndEndpoint(item.openapiSchema)?.endpoint
                 }
             })
             setPluginFunList(data)
@@ -68,9 +68,9 @@ function Actions() {
             const data = res.data.map((item: any) => {
                 return {
                     ...item,
-                    key: item.action_id,
-                    method: getFirstMethodAndEndpoint(item.openapi_schema)?.method,
-                    endpoint: getFirstMethodAndEndpoint(item.openapi_schema)?.endpoint
+                    key: item.id,
+                    method: getFirstMethodAndEndpoint(item.openapiSchema)?.method,
+                    endpoint: getFirstMethodAndEndpoint(item.openapiSchema)?.endpoint
                 }
             })
 
@@ -114,10 +114,10 @@ function Actions() {
     const handleEdit = async (val: any) => {
         setLoading(true)
         setTipSchema(false)
-        const res = await getActionsDetail(val.action_id)
-        const formattedData = JSON.stringify(res.data.openapi_schema, null, 4);
+        const res = await getActionsDetail(val.id)
+        const formattedData = JSON.stringify(res.data.openapiSchema, null, 4);
         setDrawerTitle(`${t('projectToolsEditAction')}`)
-        setActionId(val.action_id)
+        setActionId(val.id)
         setSchema(formattedData)
         if (res.data.authentication) {
             if (res.data.authentication.content) {
@@ -154,7 +154,7 @@ function Actions() {
             return
         }
         const commonData: commonDataType = {
-            openapi_schema: JSON.parse(schemaStr),
+            openapiSchema: JSON.parse(schemaStr),
             authentication: {
                 type: radioValue,
                 content: undefined,
@@ -200,7 +200,7 @@ function Actions() {
     const handleDelete = (val: any) => {
         setOpenDeleteModal(true)
         setDeleteValue(val.name)
-        setActionId(val.action_id)
+        setActionId(val.id)
     }
 
     const handleCancel = () => {

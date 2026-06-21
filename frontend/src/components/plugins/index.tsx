@@ -94,12 +94,12 @@ function Plugins() {
         const result = await pluginService.listBundles(params)
         const imagesData: any = {};
         result.data.forEach((image: any) => {
-            fetch(image.icon_url)
+            fetch(image.iconUrl)
                 .then(response => response.blob())
                 .then(blob => {
                     const reader = new FileReader();
                     reader.onload = function () {
-                        imagesData[image.bundle_id] = reader.result;
+                        imagesData[image.bundleId] = reader.result;
                         setCachedImages(imagesData);
                     };
                     reader.readAsDataURL(blob);
@@ -135,12 +135,12 @@ function Plugins() {
     },)
     const handleEdit = async (record: any) => {
         setFormDisabled(true)
-        setBundleId(record.bundle_id)
-        const data: any = (bundilesList.find((item: any) => item.bundle_id === record.bundle_id) as any)
+        setBundleId(record.bundleId)
+        const data: any = (bundilesList.find((item: any) => item.bundleId === record.bundleId) as any)
         setBundleName(data.name)
         setBundleDesc(record.description)
         setCredentialsSchema(data.credentials_schema)
-        form.setFieldsValue(record.display_credentials)
+        form.setFieldsValue(record.displayCredentials)
         setResetButtonShow(true)
         setOpenEditFormDrawer(true)
 
@@ -152,7 +152,7 @@ function Plugins() {
             setPluginName(record.plugins[0].name)
             setPluginDesc(record.plugins[0].description)
             setBundleName(record.name)
-            setPluginId(record.plugins[0].plugin_id)
+            setPluginId(record.plugins[0].pluginId)
             const inputSchematemp = record.plugins[0].input_schema
             const arr: any[] = []
             Object.values(inputSchematemp).forEach((item: any) => {
@@ -160,7 +160,7 @@ function Plugins() {
             })
             setInputSchema(arr)
             setOpenEditDrawer(true)
-            setBundleId(record.bundle_id)
+            setBundleId(record.bundleId)
             setIsShowBundle(false)
         } catch (e) {
             handleApiError(e)
@@ -187,7 +187,7 @@ function Plugins() {
     const handleDelete = (val: any) => {
         setOpenDeleteModal(true)
         setDeleteValue(val.name)
-        setBundleId(val.bundle_id)
+        setBundleId(val.bundleId)
     }
 
     const handleChildEvent = async (value: Record<string, any>) => {
@@ -218,8 +218,8 @@ function Plugins() {
     const handleClickPlugin = (pluginId: string, pluginName: string) => {
         setPluginId(pluginId)
         setPluginName(pluginName)
-        setPluginDesc((pluginListData as any[]).find((item: any) => item.plugin_id === pluginId).description)
-        const inputSchematemp = (pluginListData as any[]).find(item => item.plugin_id === pluginId).input_schema
+        setPluginDesc((pluginListData as any[]).find((item: any) => item.pluginId === pluginId).description)
+        const inputSchematemp = (pluginListData as any[]).find(item => item.pluginId === pluginId).input_schema
         const arr: any[] = []
         Object.values(inputSchematemp).forEach((item: any) => {
             arr.push(item)
@@ -371,7 +371,7 @@ function Plugins() {
     return (
         <div className={styles["actions"]}>
             <Spin spinning={loading} wrapperClassName={styles.spinloading}>
-                <ModalTable loading={loading} title='New plugin' updatePrevButton={updatePrevButton} name='plugin' id='bundle_id' hasMore={hasMore} ifSelect={false} columns={columns} dataSource={pluginFunList} onChildEvent={handleChildEvent} onOpenDrawer={handleCreatePrompt} />
+                <ModalTable loading={loading} title='New plugin' updatePrevButton={updatePrevButton} name='plugin' id='id' hasMore={hasMore} ifSelect={false} columns={columns} dataSource={pluginFunList} onChildEvent={handleChildEvent} onOpenDrawer={handleCreatePrompt} />
             </Spin>
             <CreatePlugin ref={createPluginRef} handleConfirmRequest={handleConfirmRequest} open={openCreateModal1} handleCloseModal={handleClosePluginModal}></CreatePlugin>
    

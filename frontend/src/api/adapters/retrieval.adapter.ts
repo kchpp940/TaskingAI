@@ -12,7 +12,18 @@ export const adaptCollection = (dto: CollectionDto): CollectionVM => {
   const displayName = safeString(dto.name, DEFAULT_DISPLAY_NAME);
 
   return {
-    ...dto,
+    id: dto.collection_id,
+    name: dto.name,
+    description: dto.description,
+    numRecords: dto.num_records,
+    numChunks: numChunks,
+    capacity: capacity,
+    embeddingModelId: dto.embedding_model_id,
+    embeddingSize: dto.embedding_size,
+    status: dto.status,
+    metadata: dto.metadata,
+    createdTimestamp: dto.created_timestamp,
+    updatedTimestamp: dto.updated_timestamp,
     key: dto.collection_id,
     capacityText: `${numChunks}/${capacity}`,
     remainingCapacity: Math.max(0, capacity - numChunks),
@@ -24,5 +35,3 @@ export const adaptCollection = (dto: CollectionDto): CollectionVM => {
 export const adaptCollectionList = (dtos: CollectionDto[]): CollectionVM[] => {
   return dtos.map(adaptCollection);
 };
-
-export const adaptCollectionForTable = (vm: CollectionVM): CollectionVM => vm;

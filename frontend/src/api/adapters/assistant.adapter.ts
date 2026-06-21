@@ -94,7 +94,19 @@ export const adaptAssistant = (dto: AssistantDto): AssistantVM => {
   const tools = adaptToolRefList(dto.tools);
 
   return {
-    ...dto,
+    id: dto.assistant_id,
+    modelId: dto.model_id,
+    modelName: dto.model_name,
+    name: dto.name,
+    description: dto.description,
+    systemPromptTemplate: dto.system_prompt_template,
+    memory: adaptAssistantMemory(dto.memory),
+    tools: dto.tools,
+    retrievals: dto.retrievals,
+    retrievalConfigs: adaptRetrievalConfig(dto.retrieval_configs),
+    metadata: dto.metadata,
+    createdTimestamp: dto.created_timestamp,
+    updatedTimestamp: dto.updated_timestamp,
     key: dto.assistant_id,
     systemPromptText: safeArray(dto.system_prompt_template, []).join(' '),
     actionTools: tools.filter(t => t.type === 'action'),
@@ -107,8 +119,3 @@ export const adaptAssistant = (dto: AssistantDto): AssistantVM => {
 export const adaptAssistantList = (dtos: AssistantDto[]): AssistantVM[] => {
   return dtos.map(adaptAssistant);
 };
-
-export const adaptAssistantForTable = (vm: AssistantVM): AssistantVM & { key: string } => ({
-  ...vm,
-  key: vm.assistant_id,
-});

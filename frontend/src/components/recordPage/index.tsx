@@ -71,7 +71,7 @@ function RecordPage({ collectionId,fetChData }: { collectionId: string,fetChData
                 <div>
                     <p className='table-text' style={{ fontSize: '14px' }}>{text || 'Untitled'}</p>
                     <p style={{ display: 'flex', alignItems: 'center', margin: 0, lineHeight: '18px' }}>
-                        <span style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>{record.record_id}</span><CopyOutlined className='icon-copy' onClick={() => handleCopy(record.record_id)} />
+                        <span style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>{record.id}</span><CopyOutlined className='icon-copy' onClick={() => handleCopy(record.id)} />
 
                     </p>
                 </div>
@@ -83,7 +83,7 @@ function RecordPage({ collectionId,fetChData }: { collectionId: string,fetChData
             key: 'content',
             ellipsis: true,
             render: (_text: string, record: any) => (
-                record.type === 'text' ? <Tooltip title={record.textContent || record.content} placement='bottom'><span style={{ maxWidth: '480px', overflow: 'hidden', display: 'flex', alignItems: 'center' }}><TextIcon style={{ marginRight: '4px' }} />{record.textContent || record.content}</span></Tooltip> : (record.type === 'web' ? <span style={{ maxWidth: '480px', overflow: 'hidden', display: 'flex', alignItems: 'center' }}><WebIcon style={{ marginRight: '4px' }} />{record.webContent?.url || ''}</span> : <span style={{ maxWidth: '480px', overflow: 'hidden', display: 'flex', alignItems: 'center' }}>{IconReverse(record.fileContent?.file_name || '')}{record.fileContent?.file_name || ''}</span>)
+                record.type === 'text' ? <Tooltip title={record.textContent} placement='bottom'><span style={{ maxWidth: '480px', overflow: 'hidden', display: 'flex', alignItems: 'center' }}><TextIcon style={{ marginRight: '4px' }} />{record.textContent}</span></Tooltip> : (record.type === 'web' ? <span style={{ maxWidth: '480px', overflow: 'hidden', display: 'flex', alignItems: 'center' }}><WebIcon style={{ marginRight: '4px' }} />{record.webContent?.url || ''}</span> : <span style={{ maxWidth: '480px', overflow: 'hidden', display: 'flex', alignItems: 'center' }}>{IconReverse(record.fileContent?.file_name || '')}{record.fileContent?.file_name || ''}</span>)
             ),
         },
         {
@@ -99,7 +99,7 @@ function RecordPage({ collectionId,fetChData }: { collectionId: string,fetChData
         },
         {
             title: `${t('chunk')}`,
-            dataIndex: 'num_chunks',
+            dataIndex: 'numChunks',
             key: 'num_chunks',
             width: 180,
             render: (text: string) => (
@@ -111,7 +111,7 @@ function RecordPage({ collectionId,fetChData }: { collectionId: string,fetChData
         {
             title: `${t('projectModelColumnCreatedAt')} `,
             width: 180,
-            dataIndex: 'created_timestamp',
+            dataIndex: 'createdTimestamp',
             key: 'created_timestamp',
             render: (time: number) => <div>{time}</div>
         },
@@ -303,7 +303,7 @@ function RecordPage({ collectionId,fetChData }: { collectionId: string,fetChData
     const handleDelete = async (record: any) => {
         try {
             setOpenDeleteModal(true)
-            setDeleteId(record.record_id)
+            setDeleteId(record.id)
         } catch (e) {
             console.log(e)
         }
@@ -330,7 +330,7 @@ function RecordPage({ collectionId,fetChData }: { collectionId: string,fetChData
             return
         }
         setDrawerTitle(`${t('projectRecordEditRecord')}`)
-        setRecordId(record.record_id)
+        setRecordId(record.id)
         setType(record.type)
         setTitle(record.title)
 
@@ -344,7 +344,7 @@ function RecordPage({ collectionId,fetChData }: { collectionId: string,fetChData
                 size: record.fileContent?.file_size || 0
             }])
         } else if (record.type === 'text') {
-            setContentValue(record.textContent || record.content)
+            setContentValue(record.textContent)
         }
         setChunkSize(Number(localStorage.getItem('chunkSize')))
         setChunkOverlap(Number(localStorage.getItem('chunkOverlap')))
@@ -430,7 +430,7 @@ function RecordPage({ collectionId,fetChData }: { collectionId: string,fetChData
     }
     return (
         <Spin spinning={loading} >
-            <ModalTable ifOnlyId={true} title='New record' onOpenDrawer={handleCreatePrompt} onChildEvent={handleChildEvent} updatePrevButton={updatePrevButton} dataSource={recordList} ifSelect={false} name="record" columns={columns} hasMore={hasMore} id="record_id"></ModalTable>
+                <ModalTable ifOnlyId={true} title='New record' onOpenDrawer={handleCreatePrompt} onChildEvent={handleChildEvent} updatePrevButton={updatePrevButton} dataSource={recordList} ifSelect={false} name="record" columns={columns} hasMore={hasMore} id="id"></ModalTable>
             <Modal footer={[
                 <Button key="cancel" onClick={handleCancel} className='cancel-button'>
                     {t('cancel')}

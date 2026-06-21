@@ -64,19 +64,19 @@ function CommonComponents() {
                 <div>
                     <p className='table-text' style={{ fontSize: '14px' }}>{text || 'Untitled Model'}</p>
                     <p style={{ display: 'flex', alignItems: 'center', margin: 0, lineHeight: '18px' }}>
-                        <span style={{ fontSize: '12px', color: '#777', lineHeight: '18px' }}>{record.model_id}</span><CopyOutlined className='icon-copy' onClick={() => handleCopy(record.model_id)} />
+                        <span style={{ fontSize: '12px', color: '#777', lineHeight: '18px' }}>{record.id}</span><CopyOutlined className='icon-copy' onClick={() => handleCopy(record.id)} />
                     </p>
                 </div>
             ,
         },
         {
             title: `${t('projectModelColumnBaseModel')}`,
-            dataIndex: 'model_schema_id',
+            dataIndex: 'modelSchemaId',
             key: 'base_model_id',
             width: 240,
             render: (text: string, record: any) =>
                 <div className='img-text'>
-                    <IconComponent providerId={record.provider_id} /> <span className='a'>{text}</span>
+                    <IconComponent providerId={record.providerId} /> <span className='a'>{text}</span>
                 </div>
 
             ,
@@ -108,7 +108,7 @@ function CommonComponents() {
         {
             title: `${t('projectModelColumnCreatedAt')}`,
             width: 180,
-            dataIndex: 'created_timestamp',
+            dataIndex: 'createdTimestamp',
             key: 'created_timestamp',
             render: (time: number) => <div>{formatTimestamp(time)}</div>
         },
@@ -123,11 +123,11 @@ function CommonComponents() {
             width: 280,
             render: (text: string, record: any) =>
                 <div style={{ display: 'flex', alignItems: 'center' }}>
-                    <img src={record.icon_url} alt="" style={{ width: '36px', height: '36px' }} />
+                    <img src={record.iconUrl} alt="" style={{ width: '36px', height: '36px' }} />
                     <div style={{ marginLeft: '12px' }}>
                         <p className='table-text' style={{ fontSize: '14px', marginBottom: '4px', marginTop: '4px' }}>{text}</p>
                         <p style={{ display: 'flex', alignItems: 'center', margin: 0, lineHeight: '18px' }}>
-                            <span style={{ color: '#777', fontSize: '12px' }}>{record.bundle_id}</span><CopyOutlined className='icon-copy' onClick={() => handleCopy(record.bundle_id)} />
+                            <span style={{ color: '#777', fontSize: '12px' }}>{record.id}</span><CopyOutlined className='icon-copy' onClick={() => handleCopy(record.id)} />
                         </p>
                     </div>
 
@@ -162,14 +162,14 @@ function CommonComponents() {
         },
         {
             title: `${t('projectModelColumnCreatedAt')}`,
-            dataIndex: 'created_timestamp',
+            dataIndex: 'createdTimestamp',
             key: 'created_timestamp',
             width: 180,
             render: (time: number) => <div>{formatTimestamp(time)}</div>
         },
         {
             title: `${t('projectColumnLastUpdated')}`,
-            dataIndex: 'updated_timestamp',
+            dataIndex: 'updatedTimestamp',
             key: 'updated_timestamp',
             width: 180,
             render: (time: number) => <div>{formatTimestamp(time)}</div>
@@ -186,7 +186,7 @@ function CommonComponents() {
                 <div>
                     <p className='table-text' style={{ fontSize: '14px' }}>{text || 'Untitled Collection'}</p>
                     <p style={{ display: 'flex', alignItems: 'center', margin: 0, lineHeight: '18px' }}>
-                        <span style={{ fontSize: '12px', color: '#777' }}>{record.collection_id}</span><CopyOutlined className='icon-copy' onClick={() => handleCopy(record.collection_id)} />
+                        <span style={{ fontSize: '12px', color: '#777' }}>{record.id}</span><CopyOutlined className='icon-copy' onClick={() => handleCopy(record.id)} />
 
                     </p>
                 </div>
@@ -205,7 +205,7 @@ function CommonComponents() {
         },
         {
             title: `${t('projectRetrievalColumnRecords')}`,
-            dataIndex: 'num_records',
+            dataIndex: 'numRecords',
             key: 'num_records',
             width: 180,
             render: (text: string) => (
@@ -244,14 +244,14 @@ function CommonComponents() {
             <div>
                 <p className='table-text' style={{ fontSize: '14px' }}>{text || 'Untitled Model'}</p>
                 <p style={{ display: 'flex', alignItems: 'center', margin: 0, lineHeight: '18px' }}>
-                    <span style={{ fontSize: '12px', color: '#777' }}>{record.embedding_model_id}</span><CopyOutlined className='icon-copy' onClick={() => handleCopy(record.embedding_model_id)} />
+                    <span style={{ fontSize: '12px', color: '#777' }}>{record.embeddingModelId}</span><CopyOutlined className='icon-copy' onClick={() => handleCopy(record.embeddingModelId)} />
 
                 </p>
             </div>
         },
         {
             title: `${t('projectModelColumnCreatedAt')}`,
-            dataIndex: 'created_timestamp',
+            dataIndex: 'createdTimestamp',
             key: 'created_timestamp',
             width: 180,
             render: (time: number) => <div>{formatTimestamp(time)}</div>
@@ -269,7 +269,7 @@ function CommonComponents() {
                 <div>
                     <p className='table-text' style={{ fontSize: '14px' }}>{text}</p>
                     <p style={{ display: 'flex', alignItems: 'center', margin: 0 }}>
-                        <span style={{ color: '#777', fontSize: '12px' }}>{record.action_id}</span><CopyOutlined className='icon-copy' onClick={() => handleCopy(record.action_id)} />
+                        <span style={{ color: '#777', fontSize: '12px' }}>{record.id}</span><CopyOutlined className='icon-copy' onClick={() => handleCopy(record.id)} />
 
                     </p>
                 </div>
@@ -291,9 +291,9 @@ function CommonComponents() {
             dataIndex: 'method',
             key: 'method',
             width: 180,
-            render: (_: any) => (
+            render: (_: any, record: any) => (
                 <>
-                    {_}
+                    {record.methodLabel || record.method}
                 </>
             ),
         },
@@ -302,16 +302,16 @@ function CommonComponents() {
             dataIndex: 'endpoint',
             key: 'endpoint',
             width: 360,
-            render: (_: any) => (
+            render: (_: any, record: any) => (
                 <>
-                    {_}
+                    {record.endpointInfo?.endpoint}
                 </>
             ),
         },
         {
             title: `${t('projectModelColumnCreatedAt')}`,
             width: 180,
-            dataIndex: 'created_timestamp',
+            dataIndex: 'createdTimestamp',
             key: 'created_timestamp',
             render: (time: number) => <div>{formatTimestamp(time)}</div>
         }]
@@ -341,14 +341,14 @@ function CommonComponents() {
         },
         {
             title: `${t('projectModelColumnCreatedAt')}`,
-            dataIndex: 'created_timestamp',
+            dataIndex: 'createdTimestamp',
             key: 'created_timestamp',
             width: 180,
             render: (time: number) => <div>{formatTimestamp(time)}</div>
         },
         {
             title: `${t('projectColumnLastUpdated')}`,
-            dataIndex: 'updated_timestamp',
+            dataIndex: 'updatedTimestamp',
             key: 'updated_timestamp',
             width: 180,
             render: (time: number) => <div>{formatTimestamp(time)}</div>
@@ -367,7 +367,7 @@ function CommonComponents() {
                 <div>
                     <p className='table-text' style={{ fontSize: '14px' }}>{text || 'Untitled Assistant'}</p>
                     <p style={{ display: 'flex', alignItems: 'center', margin: 0, lineHeight: '18px' }}>
-                        <span style={{ fontSize: '12px', color: '#777' }}>{record.assistant_id}</span><CopyOutlined className='icon-copy' onClick={() => handleCopy(record.assistant_id)} />
+                        <span style={{ fontSize: '12px', color: '#777' }}>{record.id}</span><CopyOutlined className='icon-copy' onClick={() => handleCopy(record.id)} />
 
                     </p>
                 </div>
@@ -386,7 +386,7 @@ function CommonComponents() {
         },
         {
             title: `${t('projectAssistantsColumnLangModel')}`,
-            dataIndex: 'model_name',
+            dataIndex: 'modelName',
             width: 360,
             key: 'model_id',
             ellipsis: true,
@@ -394,7 +394,7 @@ function CommonComponents() {
                 <div>
                     <p className='table-text' style={{ fontSize: '14px' }}>{text || 'Untitled Model'}</p>
                     <p style={{ display: 'flex', alignItems: 'center', margin: 0, lineHeight: '18px' }}>
-                        <span style={{ fontSize: '12px', color: '#777' }}>{record.model_id}</span><CopyOutlined className='icon-copy' onClick={() => handleCopy(record.model_id)} />
+                        <span style={{ fontSize: '12px', color: '#777' }}>{record.modelId}</span><CopyOutlined className='icon-copy' onClick={() => handleCopy(record.modelId)} />
                     </p>
                 </div>
             ,
@@ -402,7 +402,7 @@ function CommonComponents() {
         {
             title: `${t('projectAssistantsColumnPromptTemp')}`,
             width: 360,
-            dataIndex: 'promptTemplate',
+            dataIndex: 'systemPromptText',
             ellipsis: true,
             render: (_: any) => (
                 <div>{_}</div>
@@ -413,15 +413,15 @@ function CommonComponents() {
             title: `${t('projectAssistantsColumnMemory')}`,
             width: 180,
             dataIndex: 'memory',
-            render: (_: any) => (
-                <div>{reverseLabel[_]}</div>
+            render: (_: any, record: any) => (
+                <div>{reverseLabel[record.memory.type]}</div>
 
             )
         },
         {
             title: `${t('projectModelColumnCreatedAt')}`,
             width: 180,
-            dataIndex: 'created_timestamp',
+            dataIndex: 'createdTimestamp',
             key: 'created_timestamp',
             render: (time: number) => <div>{formatTimestamp(time)}</div>
         },

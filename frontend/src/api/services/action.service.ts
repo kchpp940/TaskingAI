@@ -15,7 +15,7 @@ export const actionService = {
   async list(params: ActionListParams = {}): Promise<PaginatedResponse<ActionVM>> {
     const query = buildListParams('action_id', { limit: DEFAULT_LIMIT, ...params });
     const url = `${ACTION_BASE_URL}/actions${query ? `?${query}` : ''}`;
-    const response = await httpClient.get(url) as any as PaginatedResponse<ActionDto>;
+    const response = await httpClient.get<PaginatedResponse<ActionDto>>(url);
     return {
       data: adaptActionList(response.data),
       has_more: response.has_more,
@@ -24,19 +24,19 @@ export const actionService = {
 
   async get(actionId: string): Promise<ActionVM> {
     const url = `${ACTION_BASE_URL}/actions/${actionId}`;
-    const response = await httpClient.get(url) as any as { data: ActionDto };
+    const response = await httpClient.get<{ data: ActionDto }>(url);
     return adaptAction(response.data);
   },
 
   async bulkCreate(params: ActionBulkCreateRequest): Promise<ActionVM[]> {
     const url = `${ACTION_BASE_URL}/actions/bulk_create`;
-    const response = await httpClient.post(url, params) as any as { data: ActionDto[] };
+    const response = await httpClient.post<{ data: ActionDto[] }>(url, params);
     return adaptActionList(response.data);
   },
 
   async update(actionId: string, params: ActionUpdateRequest): Promise<ActionVM> {
     const url = `${ACTION_BASE_URL}/actions/${actionId}`;
-    const response = await httpClient.post(url, params) as any as { data: ActionDto };
+    const response = await httpClient.post<{ data: ActionDto }>(url, params);
     return adaptAction(response.data);
   },
 

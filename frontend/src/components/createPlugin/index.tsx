@@ -4,11 +4,11 @@ import { useTranslation } from 'react-i18next';
 import { LeftOutlined, RightOutlined } from '@ant-design/icons';
 import styles from './createPlugin.module.scss';
 import closeIcon from '../../assets/img/x-close.svg'
-import { getPluginDetail, createPlugin, bundleList } from '@/axios/plugin.ts'
+import { pluginService, handleApiError } from '@/api'
+import type { BundleVM, PluginVM } from '@/api'
 import ParameterTable from '../parameterTable/index.tsx'
 import RightArrow from '../../assets/img/rightarrow.svg?react'
 import ToolsNew from '../../assets/img/tools.svg?react'
-import ApiErrorResponse from '@/constant/index'
 import { toast } from 'react-toastify';
 
 const CreatePlugin = forwardRef((props:any, ref) => {
@@ -45,38 +45,36 @@ const CreatePlugin = forwardRef((props:any, ref) => {
         getBundleList: getBundleList
     }));
     const getBundleList = async (params: object) => {
-        const res: any = await bundleList(params)
-        const selectedItem: any = res.data.find((item: any) => item.registered === false) || []
-        setBundleId(selectedItem.bundle_id)
+        const res = await pluginService.listBundles(params as any)
+        const selectedItem = res.data.find((item: BundleVM) => item.registered === false) || res.data[0]
+        setBundleId(selectedItem.bundleId)
         setBundleName(selectedItem.name)
         setDescription(selectedItem.description)
-
         setBundlesList(res.data)
-        const imagesData: any = {};
-        res.data.forEach((image: any) => {
-            fetch(image.icon_url)
-                .then(response => response.blob())
-                .then(blob => {
-                    const reader = new FileReader();
-                    reader.onload = function () {
-                        imagesData[image.bundle_id] = reader.result;
-                        setCachedImages(imagesData);
-                    };
-                    reader.readAsDataURL(blob);
-                });
+        const imagesData: Record<string, string> = {};
+        res.data.forEach((bundle) => {
+            if (bundle.iconUrl) {
+                fetch(bundle.iconUrl)
+                    .then(response => response.blob())
+                    .then(blob => {
+                        const reader = new FileReader();
+                        reader.onload = function () {
+                            imagesData[bundle.bundleId] = reader.result as string;
+                            setCachedImages({...imagesData});
+                        };
+                        reader.readAsDataURL(blob);
+                    });
+            }
         });
-        setCredentialsSchema(selectedItem.credentials_schema)
-        const res1 = await getPluginDetail(res.data[0].bundle_id)
-        setPluginListData(res1.data)
-        setPluginId(res1.data[0].plugin_id)
-        setPluginName(res1.data[0].name)
-        setPluginDesc(res1.data[0].description)
-        const inputSchematemp = res1.data[0].input_schema
-        const arr: any[] = []
-        Object.values(inputSchematemp).forEach((item: any) => {
-            arr.push(item)
-        })
-        setInputSchema(arr)
+        setCredentialsSchema(selectedItem.credentialsSchema || {})
+        const plugins = await pluginService.getBundlePlugins(selectedItem.bundleId)
+        setPluginListData(plugins)
+        if (plugins.length > 0) {
+            setPluginId(plugins[0].pluginId)
+            setPluginName(plugins[0].name)
+            setPluginDesc(plugins[0].description)
+            setInputSchema(plugins[0].inputSchema)
+        }
     }
 
     const handleNext1 = async () => {
@@ -87,7 +85,7 @@ const CreatePlugin = forwardRef((props:any, ref) => {
             }
             try {
                 setNextLoading1(true)
-                await createPlugin(params)
+                await pluginService.createBundleInstance(params)
                 const params1 = {
                     limit: 100,
                     offset: 0,
@@ -100,9 +98,7 @@ const CreatePlugin = forwardRef((props:any, ref) => {
                 setOpenCreateModal2(false)
                 toast.success('Creation successful!')
             } catch (e) {
-                const apiError = e as ApiErrorResponse;
-                const errorMessage: string = apiError.response.data.error.message;
-                toast.error(errorMessage)
+                handleApiError(e)
             } finally {
                 setNextLoading1(false)
             }
@@ -133,7 +129,7 @@ const CreatePlugin = forwardRef((props:any, ref) => {
                     bundle_id: bundleId,
                 }
                 setConfirmLoading(true)
-                await createPlugin(params)
+                await pluginService.createBundleInstance(params)
                 const params1 = {
                     limit: 100,
                     offset: 0,
@@ -147,9 +143,7 @@ const CreatePlugin = forwardRef((props:any, ref) => {
 
                 toast.success('Creation successful!')
             } catch (error) {
-                const apiError = error as ApiErrorResponse;
-                const errorMessage: string = apiError.response.data.error.message;
-                toast.error(errorMessage)
+                handleApiError(error)
             } finally {
                 setConfirmLoading(false)
             }
@@ -162,30 +156,25 @@ const CreatePlugin = forwardRef((props:any, ref) => {
     const handleClickPlugin = (pluginId: string, pluginName: string) => {
         setPluginId(pluginId)
         setPluginName(pluginName)
-        setPluginDesc((pluginListData as any[]).find((item: any) => item.plugin_id === pluginId).description)
-        const inputSchematemp = (pluginListData as any[]).find(item => item.plugin_id === pluginId).input_schema
-        const arr: any[] = []
-        Object.values(inputSchematemp).forEach((item: any) => {
-            arr.push(item)
-        })
-        setInputSchema(arr)
+        const plugin = (pluginListData as PluginVM[]).find(item => item.pluginId === pluginId)
+        if (plugin) {
+            setPluginDesc(plugin.description)
+            setInputSchema(plugin.inputSchema)
+        }
     }
     const handleClickBundle = async (bundleId: string, bundleName: string, item: any) => {
         setBundleId(bundleId)
         setPluginInfoLoading(true)
         setBundleName(bundleName)
         setDescription(item.description)
-        setPluginListData(item.plugins)
-        setPluginId(item.plugins[0].plugin_id)
-        setCredentialsSchema(item.credentials_schema)
-        setPluginName(item.plugins[0].name)
-        setPluginDesc(item.plugins[0].description)
-        const inputSchematemp = item.plugins[0].input_schema
-        const arr: any[] = []
-        Object.values(inputSchematemp).forEach((item: any) => {
-            arr.push(item)
-        })
-        setInputSchema(arr)
+        setCredentialsSchema(item.credentialsSchema || {})
+        setPluginListData(item.plugins || [])
+        if (item.plugins && item.plugins.length > 0) {
+            setPluginId(item.plugins[0].pluginId)
+            setPluginName(item.plugins[0].name)
+            setPluginDesc(item.plugins[0].description)
+            setInputSchema(item.plugins[0].inputSchema)
+        }
         setPluginInfoLoading(false)
     }
     return <>
@@ -227,7 +216,7 @@ const CreatePlugin = forwardRef((props:any, ref) => {
                 <div className={styles.content1}>
                     <div className={styles.left}>
                         {pluginListData.map((item: any, index) => (
-                            <div key={index} onClick={() => { handleClickPlugin(item.plugin_id, item.name) }} className={`${styles.pluginName} ${pluginId === item.plugin_id && styles.pluginId}`}>
+                            <div key={index} onClick={() => { handleClickPlugin(item.pluginId, item.name) }} className={`${styles.pluginName} ${pluginId === item.pluginId && styles.pluginId}`}>
                                 {item.name}
                             </div>
                         ))}
@@ -250,9 +239,9 @@ const CreatePlugin = forwardRef((props:any, ref) => {
                     <div className={styles['content-modal']}>
                         <div className={styles.content}>
                             {bundilesList.map((item: any, index: number) => (
-                                <div key={index} className={`${styles.frameParent} ${item.bundle_id === bundleId && styles.activeframeParent} ${item.registered && styles.registeredItem}`} onClick={item.registered ? undefined : () => { handleClickBundle(item.bundle_id, item.name, item) }}>
+                                <div key={index} className={`${styles.frameParent} ${item.bundleId === bundleId && styles.activeframeParent} ${item.registered && styles.registeredItem}`} onClick={item.registered ? undefined : () => { handleClickBundle(item.bundleId, item.name, item) }}>
                                     <div className={styles.logoParent}>
-                                        <img src={(cachedImages as any)[item.bundle_id]} alt="" className={styles.img} />
+                                        <img src={(cachedImages as any)[item.bundleId]} alt="" className={styles.img} />
                                         <div className={styles.frameWrapper}>
                                             <div className={styles.frameWrapper}>
                                                 <div className={styles.frameDiv}>
@@ -268,7 +257,7 @@ const CreatePlugin = forwardRef((props:any, ref) => {
                                     <div className={styles.frameGroup}>
                                         <div className={styles.functionaliconsParent}>
                                             <ToolsNew />
-                                            <div className={styles.webSearch}>{item.num_plugins} {item.num_plugins > 1 ? t('projectToolsTitle') : 'Tool'}</div>
+                                            <div className={styles.webSearch}>{item.numPlugins} {item.numPlugins > 1 ? t('projectToolsTitle') : 'Tool'}</div>
                                         </div>
                                         <div className={styles.taskingaiWrapper}>
                                             <div className={styles.taskingai}>{item.developer}</div>

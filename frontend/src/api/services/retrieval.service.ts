@@ -15,7 +15,7 @@ export const collectionService = {
   async list(params: CollectionListParams = {}): Promise<PaginatedResponse<CollectionVM>> {
     const query = buildListParams('collection_id', { limit: DEFAULT_LIMIT, ...params });
     const url = `${COLLECTION_BASE_URL}/ui/collections${query ? `?${query}` : ''}`;
-    const response = await httpClient.get(url) as any as PaginatedResponse<CollectionDto>;
+    const response = await httpClient.get<PaginatedResponse<CollectionDto>>(url);
     return {
       data: adaptCollectionList(response.data),
       has_more: response.has_more,
@@ -24,19 +24,19 @@ export const collectionService = {
 
   async get(collectionId: string): Promise<CollectionVM> {
     const url = `${COLLECTION_BASE_URL}/collections/${collectionId}`;
-    const response = await httpClient.get(url) as any as { data: CollectionDto };
+    const response = await httpClient.get<{ data: CollectionDto }>(url);
     return adaptCollection(response.data);
   },
 
   async create(params: CollectionCreateRequest): Promise<CollectionVM> {
     const url = `${COLLECTION_BASE_URL}/collections`;
-    const response = await httpClient.post(url, params) as any as { data: CollectionDto };
+    const response = await httpClient.post<{ data: CollectionDto }>(url, params);
     return adaptCollection(response.data);
   },
 
   async update(collectionId: string, params: CollectionUpdateRequest): Promise<CollectionVM> {
     const url = `${COLLECTION_BASE_URL}/collections/${collectionId}`;
-    const response = await httpClient.post(url, params) as any as { data: CollectionDto };
+    const response = await httpClient.post<{ data: CollectionDto }>(url, params);
     return adaptCollection(response.data);
   },
 

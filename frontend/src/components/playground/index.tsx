@@ -5,7 +5,7 @@ import { PlusOutlined, RightOutlined, LoadingOutlined, SearchOutlined, EyeOutlin
 import PlayGroundImg from '@/assets/img/selectAssistantImg.svg?react'
 import type { GetProp, UploadProps } from 'antd';
 import { toast } from 'react-toastify';
-import { assistantService, modelService, actionService, pluginService, chatService, handleApiError } from '@/api'
+import { assistantService, modelService, actionService, pluginService, chatService, handleApiError, collectionService } from '@/api'
 import type { AssistantVM, ModelVM, ActionVM, AssistantUpdateRequest } from '@/api'
 import CreatePlugin from '../createPlugin/index.tsx';
 import { setPlaygroundSelect, setPlaygroundAssistantId, } from '@/Redux/actions/playground.ts'
@@ -20,8 +20,7 @@ import ModalTable from '../modalTable/index'
 import { commonDataType } from '@/constant/assistant.ts'
 import LoadingAnim from '../../assets/img/loadingAnim.svg?react'
 import { ChildRefType } from '../../constant/index.ts'
-import ChatIcon from '../../assets/img/chatIcon.svg?react'
-import { getRetrievalList } from '../../axios/retrieval.ts';
+import ChatIcon from '../../assets/img/chatIcon.svg?react';
 import PlaygroundImg from '@/assets/img/playgroundImg.svg?react'
 import closeIcon from '../../assets/img/x-close.svg'
 type FileType = Parameters<GetProp<UploadProps, 'beforeUpload'>>[0];
@@ -277,8 +276,8 @@ function Playground() {
         setOptionList(result.data)
         if (assistantId) {
             const id = assistantId[0].split('-')[1] ? assistantId[0].split('-')[1] : assistantId[0]
-            const item1 = result.data.find((item: AssistantVM) => (item.assistant_id === id))
-            setAssistantId([`${item1.name}-${item1.assistant_id}`])
+            const item1 = result.data.find((item: AssistantVM) => (item.id === id))
+            setAssistantId([`${item1.name}-${item1.id}`])
         }
         setModelHasMore(result.has_more)
     }
@@ -332,13 +331,13 @@ function Playground() {
                 setListChats(res2.data)
                 localStorage.setItem('listChats', JSON.stringify(res2.data))
                 setLoadMoreHasMore(res2.has_more)
-                setChatId(res2.data[0]?.chat_id)
-                localStorage.setItem('chatId', res2.data[0]?.chat_id)
+                setChatId(res2.data[0]?.id)
+                localStorage.setItem('chatId', res2.data[0]?.id)
                 const param = {
                     order: 'desc',
                 }
                 if (res2.data.length > 0) {
-                    const res = await chatService.listMessages(assistantIdParam, res2.data[0]?.chat_id, param)
+                    const res = await chatService.listMessages(assistantIdParam, res2.data[0]?.id, param)
                     const data = res.data.reverse()
                     setContentHasMore(res.has_more)
                     localStorage.setItem('contentHasMore', JSON.stringify(res.has_more))
@@ -447,12 +446,12 @@ function Playground() {
             id = assistantId[0]
         }
         const detail = await assistantService.get(id)
-        const { name, description, model_name, model_id, system_prompt_template, tools, retrievals, memory, retrieval_configs } = detail
+        const { name, description, modelName, modelId, systemPromptTemplate, tools, retrievals, memory, retrievalConfigs } = detail
         setDrawerName(name)
         setDrawerDesc(description)
-        setSelectedRows(model_id as any)
-        setOriginalModelData(model_id as any)
-        setModelName(model_name)
+        setSelectedRows(modelId as any)
+        setOriginalModelData(modelId as any)
+        setModelName(modelName)
         setSelectedActionSelected(tools.filter((item: any) => item.type === 'action').map((item: any) => {
             return {
                 action_id: item.id,
@@ -460,16 +459,16 @@ function Playground() {
             }
         }))
         setSelectedPluginGroup(tools?.filter((item: any) => item.type === 'plugin').map((item: any) => item.id?.split('/')[1]));
-        setRetrievalConfig(retrieval_configs?.method || 'user_message')
-        setTopk(retrieval_configs?.top_k || 3)
-        setMaxToken(retrieval_configs?.max_tokens || 4096)
+        setRetrievalConfig(retrievalConfigs?.method || 'user_message')
+        setTopk(retrievalConfigs?.topK || 3)
+        setMaxToken(retrievalConfigs?.maxTokens || 4096)
         setMemoryValue(memory.type)
-        setInputValueOne(memory.max_messages)
-        setInputValueTwo(memory.max_tokens)
-        if (system_prompt_template.length === 0) {
+        setInputValueOne(memory.maxMessages)
+        setInputValueTwo(memory.maxTokens)
+        if (systemPromptTemplate.length === 0) {
             setSystemPromptTemplate([''])
         } else {
-            setSystemPromptTemplate(system_prompt_template)
+            setSystemPromptTemplate(systemPromptTemplate)
         }
         setSelectedActionsRows(tools.map((item: any) => { return { type: item.type, value: item.id, name: item.name } }))
         const tag = retrievals.map((item: any) => {
@@ -509,21 +508,21 @@ function Playground() {
             systemTemplate = systemPromptTemplate
         }
         const params = {
-            model_id: Array.isArray(originalModelData) ? originalModelData[0].slice(-8) : originalModelData,
+            modelId: Array.isArray(originalModelData) ? originalModelData[0].slice(-8) : originalModelData,
             name: drawerName || '',
             description: drawerDesc || '',
-            system_prompt_template: systemTemplate,
+            systemPromptTemplate: systemTemplate,
             tools: inputPluginValues,
             retrievals: inputValueMap,
             memory: {
                 type: memoryValue,
-                max_messages: Number(inputValueOne) || undefined,
-                max_tokens: Number(inputValueTwo) || undefined
+                maxMessages: Number(inputValueOne) || undefined,
+                maxTokens: Number(inputValueTwo) || undefined
             },
-            retrieval_configs: {
-                top_k: Number(topk) || undefined,
+            retrievalConfigs: {
+                topK: Number(topk) || undefined,
                 method: retrievalConfig,
-                max_tokens: Number(maxTokens) || undefined
+                maxTokens: Number(maxTokens) || undefined
             }
         }
         let count = 0
@@ -577,10 +576,10 @@ function Playground() {
         }
         try {
             const chat = await chatService.createChat(id, params)
-            localStorage.setItem('listChats', JSON.stringify([{ chat_id: chat.chat_id, created_timestamp: chat.created_timestamp }, ...listChats]))
-            setListChats(prevValues => [{ chat_id: chat.chat_id, created_timestamp: chat.created_timestamp }, ...prevValues])
-            setChatId(chat.chat_id)
-            localStorage.setItem('chatId', chat.chat_id)
+            localStorage.setItem('listChats', JSON.stringify([{ chat_id: chat.id, created_timestamp: chat.createdTimestamp }, ...listChats]))
+            setListChats(prevValues => [{ chat_id: chat.id, created_timestamp: chat.createdTimestamp }, ...prevValues])
+            setChatId(chat.id)
+            localStorage.setItem('chatId', chat.id)
             setContentTalk([])
             setContentValue('')
             setImgList([])
@@ -723,7 +722,7 @@ function Playground() {
             try {
                 const chat = await chatService.getChat(id, searchChatID)
                 setListChats([chat])
-                localStorage.setItem('listChats', JSON.stringify([{ chat_id: chat.chat_id, created_timestamp: chat.created_timestamp }]))
+                localStorage.setItem('listChats', JSON.stringify([{ chat_id: chat.id, created_timestamp: chat.createdTimestamp }]))
             } catch (error) {
                 handleApiError(error)
             }
@@ -913,12 +912,12 @@ function Playground() {
     }
     const fetchDataRetrievalData = async (params: Record<string, any>) => {
         try {
-            const res: any = await getRetrievalList(params)
+            const res: any = await collectionService.list(params)
             const data = res.data.map((item: any) => {
                 return {
                     ...item,
-                    capacity1: item.num_chunks + '/' + item.capacity,
-                    key: item.collection_id
+                    capacity1: item.numChunks + '/' + item.capacity,
+                    key: item.id
                 }
             })
             setRetrievalList(data);
@@ -953,7 +952,7 @@ function Playground() {
     const handleAssistantModalClose = () => {
         const queryParams = new URLSearchParams(search);
         const data = queryParams.get('assistant_id')
-        const assistantData = optionList.find((item: any) => item.assistant_id === data)
+        const assistantData = optionList.find((item: any) => item.id === data)
         if(assistantData) {
             if (assistantData.name) {
                 setAssistantName(assistantData.name)
@@ -962,7 +961,7 @@ function Playground() {
                 setAssistantName('Untitled Assistant')
                 localStorage.setItem('assistantName', 'Untitled Assistant')
             }
-            setAssistantId([assistantData.assistant_id])
+            setAssistantId([assistantData.id])
         }
         setOpenAssistantModalTable(false)
     }
@@ -972,14 +971,14 @@ function Playground() {
         const result = await chatService.listChats(id, { limit: 20 })
         localStorage.setItem('listChats', JSON.stringify(result.data))
         setListChats(result.data)
-        setChatId(result.data[0]?.chat_id)
-        localStorage.setItem('chatId', result.data[0]?.chat_id)
+        setChatId(result.data[0]?.id)
+        localStorage.setItem('chatId', result.data[0]?.id)
         const param = {
             order: 'desc',
         }
         if (result.data[0]) {
             try {
-                const res1 = await chatService.listMessages(id, result.data[0]?.chat_id, param)
+                const res1 = await chatService.listMessages(id, result.data[0]?.id, param)
                 const data = res1.data.reverse()
                 localStorage.setItem('contentTalk', JSON.stringify(data))
                 setContentTalk(res1.data)
@@ -1007,7 +1006,7 @@ function Playground() {
             return
         }
         const commonData: commonDataType = {
-            openapi_schema: JSON.parse(schema),
+            openapiSchema: JSON.parse(schema),
             authentication: {
                 type: radioValue,
                 content: undefined,
@@ -1050,7 +1049,7 @@ function Playground() {
         setAuthentication(value)
     }
     const handleRecordsSelected = (_value: any[], selectedRows: any[]) => {
-        const tag = selectedRows.map(item => (item.name + '-' + item.model_id))
+        const tag = selectedRows.map(item => (item.name + '-' + item.id))
         setSelectedRows(tag)
         // setOriginalModelData(tag)
         // setModelName(selectedRows.map(item => item.name))
@@ -1061,10 +1060,10 @@ function Playground() {
             if (item.name) {
                 setAssistantName(item.name)
                 localStorage.setItem('assistantName', item.name)
-                return item.name + '-' + item.assistant_id
+                return item.name + '-' + item.id
             } else {
                 setAssistantName('Untitled Assistant')
-                return item.assistant_id
+                return item.id
             }
         })
         setAssistantId(tag)
@@ -1075,7 +1074,7 @@ function Playground() {
     }
     const handleCollectionSelected = (value: any, selectedRows: any[]) => {
         setRecordsSelected1(value)
-        const tag = selectedRows.map(item => (item.name + '-' + item.collection_id))
+        const tag = selectedRows.map(item => (item.name + '-' + item.id))
         setSelectedRetrievalRows(tag)
     }
 
@@ -1128,7 +1127,7 @@ function Playground() {
     const handleLodaMore = async () => {
         const params = {
             limit: 20,
-            after: listChats[listChats.length - 1].chat_id
+            after: listChats[listChats.length - 1].id
         }
         let id;
         if (assistantId[0].split('-')[1]) {
@@ -1149,7 +1148,7 @@ function Playground() {
         const params = {
             limit: 20,
             order: 'desc',
-            after: contentTalk[0]?.message_id
+            after: contentTalk[0]?.id
         }
         setNoPreviousMessage(true)
         fetchHistoryMessage(assistantId, chatId, params)
@@ -1192,8 +1191,8 @@ function Playground() {
             localStorage.setItem('listChats', JSON.stringify(result.data))
             localStorage.setItem('chatsHasMore', JSON.stringify(result.has_more))
             setLoadMoreHasMore(result.has_more)
-            setChatId(result.data[0]?.chat_id)
-            localStorage.setItem('chatId', result.data[0]?.chat_id)
+            setChatId(result.data[0]?.id)
+            localStorage.setItem('chatId', result.data[0]?.id)
             const param1 = {
                 order: 'desc',
                 limit: 20
@@ -1201,8 +1200,8 @@ function Playground() {
             setContentTalk([])
             setContentValue('')
             setImgList([])
-            if (result.data[0]?.chat_id) {
-                await fetchHistoryMessage(id, result.data[0]?.chat_id, param1)
+            if (result.data[0]?.id) {
+                await fetchHistoryMessage(id, result.data[0]?.id, param1)
             }
 
         } catch (error) {
@@ -1384,11 +1383,11 @@ function Playground() {
                             </Space.Compact>
                             <div className={styles['chats']}>
                                 <div className={styles['chat-message']}>
-                                    {listChats?.map((item, index) => (<div key={index} className={`${styles.functionaliconsParent} ${chatId === item.chat_id && styles.chatId}`} onClick={() => handleOpenChat(item.chat_id)}>
+                                    {listChats?.map((item, index) => (<div key={index} className={`${styles.functionaliconsParent} ${chatId === item.id && styles.chatId}`} onClick={() => handleOpenChat(item.id)}>
                                         <ChatIcon className={styles['functionalicons']}></ChatIcon>
                                         <div className={styles['Parent']}>
-                                            <div className={styles['son']}>{item.chat_id}</div>
-                                            <div className={styles['son1']}>{formatTimestamp(item.created_timestamp)}</div>
+                                            <div className={styles['son']}>{item.id}</div>
+                                            <div className={styles['son1']}>{formatTimestamp(item.createdTimestamp)}</div>
                                         </div>
                                     </div>))}
                                     {(!loadMoreHasMore && noPreviousChat) && <div className={styles['lineParent']}>
@@ -1545,7 +1544,7 @@ function Playground() {
                     </div>
                 </div>
             ]} title={t('projectAssistantRetrievalPlaceHolder')} open={openModalTable} width={1000} onCancel={handleCloseModal} className={`modal-inner-table ${styles['retrieval-model']}`}>
-                <ModalTable title='New collection' name='collection' updatePrevButton={updateRetrievalPrevButton} defaultSelectedRowKeys={selectedRetrievalRows} hangleFilterData={hangleFilterData} mode='multiple' handleRecordsSelected={handleCollectionSelected} ifSelect={true} columns={collectionTableColumn} dataSource={retrievalList} hasMore={hasMore} id='collection_id' onChildEvent={handleChildRetrievalEvent} />
+                <ModalTable title='New collection' name='collection' updatePrevButton={updateRetrievalPrevButton} defaultSelectedRowKeys={selectedRetrievalRows} hangleFilterData={hangleFilterData} mode='multiple' handleRecordsSelected={handleCollectionSelected} ifSelect={true} columns={collectionTableColumn} dataSource={retrievalList} hasMore={hasMore} id='id' onChildEvent={handleChildRetrievalEvent} />
             </Modal>
             <Modal closeIcon={<img src={closeIcon} alt="closeIcon" className={styles['img-icon-close']} />} centered onCancel={handleModalClose} footer={[
                 <div className='footer-group' key='group'>
@@ -1565,7 +1564,7 @@ function Playground() {
                     </div>
                 </div>
             ]} title={t('projectSelectModel')} open={modalTableOpen} width={1000} className={`modal-inner-table ${styles['retrieval-model']}`}>
-                <ModalTable title='New model' name="model" defaultSelectedRowKeys={Array.isArray(selectedModelRows) ? selectedModelRows : [selectedModelRows]} updatePrevButton={updateModelPrevButton} handleRecordsSelected={handleRecordsSelected} ifSelect={true} columns={modelsTableColumn} hasMore={hasModelMore} id='model_id' dataSource={options} onChildEvent={handleChildModelEvent}></ModalTable>
+                <ModalTable title='New model' name="model" defaultSelectedRowKeys={Array.isArray(selectedModelRows) ? selectedModelRows : [selectedModelRows]} updatePrevButton={updateModelPrevButton} handleRecordsSelected={handleRecordsSelected} ifSelect={true} columns={modelsTableColumn} hasMore={hasModelMore} id='id' dataSource={options} onChildEvent={handleChildModelEvent}></ModalTable>
             </Modal>
             <Drawer zIndex={10001} className={styles.drawerCreate} closeIcon={<img src={closeIcon} alt="closeIcon" className={styles['img-icon-close']} />} onClose={handleActionCancel} title='Bulk Create Action' placement="right" open={OpenActionDrawer} size='large' footer={<ModalFooterEnd handleOk={() => handleActionRequest()} onCancel={handleActionCancel} />}>
                 <ActionDrawer showTipError={tipSchema} onhandleTipError={onhandleTipError} schema={schema} onSchemaChange={handleSchemaChange} onRadioChange={onRadioChange} onChangeCustom={handleCustom} onChangeAuthentication={hangleChangeAuthorization} radioValue={radioValue} custom={custom} Authentication={Authentication} />
@@ -1586,7 +1585,7 @@ function Playground() {
 
                 </div>
             ]} title={t('projectPlaygroundSelectAssistant')} open={openAssistantModalTable} width={1000} className={`modal-inner-table ${styles.model1}`}>
-                <ModalTable name='assistant' title='New assistant' ifAllowNew={true} updatePrevButton={updatePrevButton} defaultSelectedRowKeys={defaultSelectedAssistant} handleRecordsSelected={handleRecordsAssistantSelected} ifSelect={true} columns={assistantTableColumn} hasMore={modelHasMore} id='assistant_id' dataSource={optionList} onChildEvent={handleChildAssistantEvent}></ModalTable>
+                <ModalTable name='assistant' title='New assistant' ifAllowNew={true} updatePrevButton={updatePrevButton} defaultSelectedRowKeys={defaultSelectedAssistant} handleRecordsSelected={handleRecordsAssistantSelected} ifSelect={true} columns={assistantTableColumn} hasMore={modelHasMore} id='id' dataSource={optionList} onChildEvent={handleChildAssistantEvent}></ModalTable>
             </Modal>
             <CreateCollection handleFetchData={() => fetchDataRetrievalData({ limit: retrievalLimit || 20 })} handleModalCloseOrOpen={() => setOpenCollectionDrawer(false)} OpenDrawer={openCollectionDrawer}></CreateCollection>
             <Drawer width={700} open={contentDrawer} closeIcon={<img src={closeIcon} alt="closeIcon" className={styles['img-icon-close']} />} onClose={handleCloseContentDrawer} title={t('projectPlaygroundChatCompletion')}>

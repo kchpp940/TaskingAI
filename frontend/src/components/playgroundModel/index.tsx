@@ -4,12 +4,12 @@ import styles from './playgroundModal.module.scss'
 import { useLocation, useNavigate } from 'react-router-dom';
 import { setPlaygroundModelId, setPlaygroundModelName,setTemperatureData, setMaxTokenData, setTopPData, setTopKData, setStopSequencesData } from '@/Redux/actions/playground'
 import { useDispatch } from 'react-redux';
-import { getModelSchema, getModelsForm } from '@/axios/models'
+import { modelService, authService, handleApiError } from '@/api'
 import { RightOutlined, PlusOutlined } from '@ant-design/icons';
 import DeleteInputIcon from '../../assets/img/deleteInputIcon.svg?react'
 import NoModel from '@/assets/img/NO_MODEL.svg?react'
 import ModelComponent from '../modelComponent';
-import { modalGenerate } from '@/axios/playground'
+
 import { SSE } from "sse.js";
 import { useSelector } from 'react-redux';
 import { toast } from 'react-toastify';
@@ -18,7 +18,7 @@ import IconComponent from '@/commonComponent/iconComponent/index.jsx';
 function PlaygroundModel() {
     const [loading, setLoading] = useState(false)
     const { search, pathname } = useLocation();
-    const [selectedModel, setSelectedModel] = useState<any>([{
+    const [selectedModel, setSelectedModel] = useState<{ id: string; name: string }[]>([{
         id: '',
         name: ''
     }])
@@ -35,11 +35,11 @@ function PlaygroundModel() {
     const [generateLoading, setGenerateLoading] = useState(false)
     const [streamSwitch, setStreamSwitch] = useState(true)
     const [open, setOpen] = useState(false)
-    const [stopSequences, setStopSequences] = useState<any>()
-    const [allowedConfigs, setAllowedConfigs] = useState<any>([])
-    const [selectedData, setSelectedData] = useState<any>([])
+    const [stopSequences, setStopSequences] = useState<string[] | undefined>()
+    const [allowedConfigs, setAllowedConfigs] = useState<string[]>([])
+    const [selectedData, setSelectedData] = useState<string[]>([])
     const [streamShow, setStreamShow] = useState(false)
-    const contentListRef = useRef(null);
+    const contentListRef = useRef<HTMLDivElement>(null);
     const [temperatureCheckbox, setTemperatureCheckbox] = useState(false)
     const [maxTokenCheckbox, setMaxTokenCheckbox] = useState(false)
     const [stopSequencesCheckbox, setStopSequenceCheckbox] = useState(false)
@@ -87,16 +87,16 @@ function PlaygroundModel() {
                     setTopKCheckbox(topKValueRedux)
                     setStopSequenceCheckbox(stopSequenceValueRedux)
                 } else if (modelId) {
-                    const res = await getModelSchema(modelSchemaId)
-                    setAllowedConfigs(res.data.allowed_configs || [])
+                    const schema = await modelService.getModelSchema(modelSchemaId)
+                    setAllowedConfigs(schema.allowedConfigs || [])
                     dispatch(setPlaygroundModelId(modelId))
-                    localStorage.setItem('allowedConfigs', JSON.stringify(res.data.allowed_configs))
+                    localStorage.setItem('allowedConfigs', JSON.stringify(schema.allowedConfigs))
                     setSelectedData([modelId])
 
-                    const res1 = await getModelsForm(modelId)
+                    const model = await modelService.get(modelId)
 
-                    setStreamShow(res1.data.properties.streaming)
-                    localStorage.setItem('streaming', JSON.stringify(res1.data.properties.streaming))
+                    setStreamShow(model.properties.streaming || false)
+                    localStorage.setItem('streaming', JSON.stringify(model.properties.streaming || false))
                 }
             }
             setLoading(false)
@@ -166,26 +166,28 @@ function PlaygroundModel() {
     }
     const handleModalConfirm = async (detailData: any) => {
         setLoading(true)
+        const modelId = detailData.id || detailData.model_id
+        const modelSchemaId = detailData.modelSchemaId || detailData.model_schema_id
+        const providerId = detailData.providerId || detailData.provider_id
         setSelectedModel([{
-            id: detailData.model_id,
+            id: modelId,
             name: detailData.name
         }])
-        const res = await getModelSchema(detailData.model_schema_id)
-        console.log(res)
-        localStorage.setItem('modelSchemaId', detailData.model_schema_id)
-        setModelSchemaId(detailData.model_schema_id)
-        setProviderId(detailData.provider_id)
-        localStorage.setItem('providerId', detailData.provider_id)
-        const res1 = await getModelsForm(detailData.model_id)
+        const schema = await modelService.getModelSchema(modelSchemaId)
+        localStorage.setItem('modelSchemaId', modelSchemaId)
+        setModelSchemaId(modelSchemaId)
+        setProviderId(providerId)
+        localStorage.setItem('providerId', providerId)
+        const model = await modelService.get(modelId)
         setOpen(false)
 
-        localStorage.setItem('streaming', JSON.stringify(res1.data.properties.streaming))
-        localStorage.setItem('allowedConfigs', JSON.stringify(res.data.allowed_configs))
-        setStreamShow(res1.data.properties.streaming)
-        setAllowedConfigs(res.data.allowed_configs || [])
-        dispatch(setPlaygroundModelId(detailData.model_id))
+        localStorage.setItem('streaming', JSON.stringify(model.properties.streaming || false))
+        localStorage.setItem('allowedConfigs', JSON.stringify(schema.allowedConfigs))
+        setStreamShow(model.properties.streaming || false)
+        setAllowedConfigs(schema.allowedConfigs || [])
+        dispatch(setPlaygroundModelId(modelId))
         dispatch(setPlaygroundModelName(detailData.name))
-        navigation(`${pathname}?model_id=${detailData.model_id}&model_name=${detailData.name}`)
+        navigation(`${pathname}?model_id=${modelId}&model_name=${detailData.name}`)
         setLoading(false)
     }
     const handleGenerate = async () => {
@@ -274,11 +276,11 @@ function PlaygroundModel() {
 
         } else {
             try {
-                const res: any = await modalGenerate(params)
+                const res = await authService.chatCompletion(params) as any
                 setContentList((prev) => {
                     const data = [{
-                        content: res.data.message.content,
-                        role: res.data.message.role
+                        content: res.message.content,
+                        role: res.message.role
                     },
                     {
                         content: '',
@@ -287,11 +289,8 @@ function PlaygroundModel() {
                     localStorage.setItem('modelContentList', JSON.stringify([...prev, ...data]))
                     return [...prev, ...data]
                 })
-            } catch (e) {
-                const apiError = e as any
-                if (apiError.response.data.error) {
-                    toast.error(apiError.response.data.error.message)
-                }
+            } catch (error) {
+                handleApiError(error)
             } finally {
                 setGenerateLoading(false)
             }

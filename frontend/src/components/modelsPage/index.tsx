@@ -46,12 +46,12 @@ function ModelsPage() {
     const [resetButtonShow, setResetButtonShow] = useState(true)
     const [record, setRecord] = useState<any>({
         name: '',
-        model_id: '',
-        model_schema_id: '',
-        provider_id: '',
+        id: '',
+        modelSchemaId: '',
+        providerId: '',
         type: '',
         properties: {},
-        provider_model_id: ''
+        providerModelId: ''
     });
     const [limit, setLimit] = useState(20)
     const [isVisible, setIsVisible] = useState(true);
@@ -104,7 +104,7 @@ function ModelsPage() {
             const data = modelLists.data.map((item: any) => {
                 return {
                     ...item,
-                    key: item.model_id,
+                    key: item.id,
                 }
             })
             setModelList(data)
@@ -167,15 +167,15 @@ function ModelsPage() {
  
     const handleJump = async (value: any) => {
         dispatch(setLoading(true));
-        localStorage.setItem('modelSchemaId', value.model_schema_id)
-        localStorage.setItem('providerId', value.provider_id)
-        const schemaRes = await modelService.getModelSchema(value.model_schema_id)
-        localStorage.setItem('allowedConfigs', JSON.stringify(schemaRes.allowed_configs))
-        const modelRes = await modelService.get(value.model_id)
+        localStorage.setItem('modelSchemaId', value.modelSchemaId)
+        localStorage.setItem('providerId', value.providerId)
+        const schemaRes = await modelService.getModelSchema(value.modelSchemaId)
+        localStorage.setItem('allowedConfigs', JSON.stringify(schemaRes.allowedConfigs))
+        const modelRes = await modelService.get(value.id)
         localStorage.setItem('streaming', JSON.stringify(modelRes.properties?.streaming))
         dispatch(setLoading(false));
         dispatch(setPlaygroundSelect('chat_completion'))
-        navigate(`/project/playground?model_id=${value.model_id}&model_name=${value.name}`)
+        navigate(`/project/playground?model_id=${value.id}&model_name=${value.name}`)
     }
     const handleDeleteValue = (e: ChangeEvent<HTMLInputElement>) => {
         setDeleteValue(e.target.value)
@@ -188,7 +188,7 @@ function ModelsPage() {
     const handleDeleteConfirm = async () => {
         setDeleteLoading(true)
         const limit1: number = limit || 20
-        await modelService.delete(record.model_id)
+        await modelService.delete(record.id)
         dispatch(fetchModelsData(limit1) as any);
         setDeleteLoading(false)
         setUpdatePrevButton(true)
@@ -208,16 +208,16 @@ function ModelsPage() {
         setDrawerEditOpen(true)
 
         setEditLoading(true)
-        const res = await modelService.listModelSchemas(0, 100, record.provider_id)
+        const res = await modelService.listModelSchemas(0, 100, record.providerId)
         const item = res.data.find((item: any) => {
-            return item.model_schema_id === record.model_schema_id
+            return item.model_schema_id === record.modelSchemaId
         }).type
         setModelType(item)
         setFormShow(true)
         setResetButtonShow(true)
         form1.setFieldsValue({
             name: record.name,
-            provider_model_id: record.provider_model_id
+            provider_model_id: record.providerModelId
         })
         propertyForm.setFieldsValue({
             function_call: record.properties?.function_call,
@@ -236,15 +236,15 @@ function ModelsPage() {
             embedding_size: record.properties?.embedding_size,
             max_batch_size: record.properties?.max_batch_size
         })
-        setSelectedSecondId(record.model_schema_id)
+        setSelectedSecondId(record.modelSchemaId)
         setSecondModalNameValue(record.name)
-        setModelId(record.model_id)
+        setModelId(record.id)
         setType(record.type)
         setFunctionCall(record.properties?.function_call)
         setStreaming(record.properties?.streaming)
         setProperties(record.properties)
-        setProviderId(record.provider_id)
-        await fetchEditFormData(record.model_id, record.provider_id)
+        setProviderId(record.providerId)
+        await fetchEditFormData(record.id, record.providerId)
         setEditLoading(false)
     }
     const fetchEditFormData = async (model_id: string, provider_id: string) => {
@@ -366,7 +366,7 @@ function ModelsPage() {
     return (
         <div className={styles["models-page"]}>
             <Spin spinning={loading} wrapperClassName={styles.spinloading}>
-                <ModalTable title='New model' updatePrevButton={updatePrevButton} onChildEvent={handleChildEvent} name="model" hasMore={hasMore} id='model_id' columns={columns} ifSelect={false} onOpenDrawer={handleCreateModel} dataSource={modelList} />
+                <ModalTable title='New model' updatePrevButton={updatePrevButton} onChildEvent={handleChildEvent} name="model" hasMore={hasMore} id='id' columns={columns} ifSelect={false} onOpenDrawer={handleCreateModel} dataSource={modelList} />
             </Spin>
             <ModelModal getOptionsList={fetchData1} ref={childRef} open={modelOne} handleSetModelOne={handleModalCancel} handleSetModelConfirmOne={handleSetModelConfirmOne}></ModelModal>
 

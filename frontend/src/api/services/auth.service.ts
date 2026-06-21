@@ -21,13 +21,13 @@ export interface VerifyTokenResponse {
 export const authService = {
   async login(params: LoginParams): Promise<LoginResponse> {
     const url = `${AUTH_BASE_URL}/admins/login`;
-    const response = await httpClient.post(url, params) as any as LoginResponse;
+    const response = await httpClient.post<LoginResponse>(url, params);
     return response;
   },
 
   async verifyToken(): Promise<VerifyTokenResponse> {
     const url = `${AUTH_BASE_URL}/admins/verify_token`;
-    const response = await httpClient.post(url) as any as VerifyTokenResponse;
+    const response = await httpClient.post<VerifyTokenResponse>(url);
     return response;
   },
 
@@ -38,13 +38,13 @@ export const authService = {
 
   async getViewCode(module: string): Promise<{ data: string }> {
     const url = `${AUTH_BASE_URL}/ui/template_codes/get_code?module=${module}`;
-    const response = await httpClient.get(url) as any as { data: string };
+    const response = await httpClient.get<{ data: string }>(url);
     return response;
   },
 
   async chatCompletion(params: any): Promise<any> {
     const url = `${AUTH_BASE_URL}/inference/chat_completion`;
-    const response = await httpClient.post(url, params) as any as any;
+    const response = await httpClient.post<any>(url, params);
     return response;
   },
 };

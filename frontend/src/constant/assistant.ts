@@ -3,19 +3,17 @@ interface valueLimit {
     [key: string]: string | number;
 }
 interface assistantListType {
-    assistant_id: string,
     id: string,
     retrievals: any[],
     tools: any[],
     name: string,
-    retrieval_configs: {method: string,top_k:number,max_tokens:number},
+    retrievalConfigs: {method: string,topK:number,maxTokens:number},
     description: string,
-    max_messages: number,
-    max_tokens: number,
-    memory: string,
-    system_prompt_template: string[],
-    model_id: string,
-    model_name: string,
+    memory: {type: string, maxMessages: number, maxTokens: number},
+    systemPromptTemplate: string[],
+    systemPromptText: string,
+    modelId: string,
+    modelName: string,
 }
 interface authenticationType {
     type: string
@@ -23,7 +21,7 @@ interface authenticationType {
     secret?: string
 }
 interface commonDataType {
-    openapi_schema: string,
+    openapiSchema: string,
     authentication?: authenticationType
 }
 interface modelModalProps {

@@ -146,11 +146,11 @@ function Assistant() {
         if (users.data.length > 0) {
             const data = users.data.map((item: any) => ({
                 ...item,
-                key: item.assistant_id,
-                promptTemplate: item.system_prompt_template?.join(' ') || '',
-                memory: item.memory?.type || 'zero',
-                max_messages: item.memory?.max_messages,
-                max_tokens: item.memory?.max_tokens,
+                key: item.id,
+                promptTemplate: item.systemPromptText || '',
+                memory: item.memory,
+                max_messages: item.memory?.maxMessages,
+                max_tokens: item.memory?.maxTokens,
             }))
             setAssistantsList(data);
             setAssistantHasMore(users.has_more)
@@ -160,9 +160,9 @@ function Assistant() {
         const data = retrievalLists.data.map((item: any) => {
             return {
                 ...item,
-                capacity1: item.num_chunks + '/' + item.capacity,
-                key: item.collection_id,
-                created_timestamp: formatTimestamp(item.created_timestamp),
+                capacity1: item.numChunks + '/' + item.capacity,
+                key: item.id,
+                created_timestamp: formatTimestamp(item.createdTimestamp),
             }
         })
         setRetrievalList(data);
@@ -191,7 +191,7 @@ function Assistant() {
     const handleJump = (value: assistantListType) => {
         dispatch(setPlaygroundSelect('assistant'))
         localStorage.setItem('assistantName', value.name || 'Untitled Assistant')
-        navigate(`/project/playground?assistant_id=${value.assistant_id}`)
+        navigate(`/project/playground?assistant_id=${value.id}`)
     }
     const handleModalClose = () => {
         setOriginalModelData((prev: any) => prev)
@@ -220,7 +220,7 @@ function Assistant() {
             return
         }
         const commonData: commonDataType = {
-            openapi_schema: JSON.parse(schema),
+            openapiSchema: JSON.parse(schema),
             authentication: {
                 type: radioValue,
 
@@ -312,7 +312,7 @@ function Assistant() {
     }
     const handleEdit = (val: assistantListType) => {
         console.log(val)
-        setModelName(val.model_name)
+        setModelName(val.modelName)
         setDrawerTitle(`${t('projectEditAssistant')}`)
         const tag = val.retrievals.map(item => {
             return {
@@ -331,18 +331,18 @@ function Assistant() {
         setSelectedActionsRows(val.tools.map(item => { return { type: item.type, value: item.id,name: item.name } }))
         setDrawerName(val.name)
         setDrawerDesc(val.description)
-        setRetrievalConfig(val.retrieval_configs.method || 'user_message')
-        setTopk(val.retrieval_configs.top_k || 3)
-        setMaxToken(val.retrieval_configs.max_tokens || 4096)
-        setInputValueOne(val.max_messages)
-        setInputValueTwo(val.max_tokens)
-        setMemoryValue(val.memory)
-        setRecordsSelected([val.model_id])
+        setRetrievalConfig(val.retrievalConfigs.method || 'user_message')
+        setTopk(val.retrievalConfigs.topK || 3)
+        setMaxToken(val.retrievalConfigs.maxTokens || 4096)
+        setInputValueOne(val.memory.maxMessages)
+        setInputValueTwo(val.memory.maxTokens)
+        setMemoryValue(val.memory.type)
+        setRecordsSelected([val.modelId])
 
-        setAssistantId(val.assistant_id)
-        setSystemPromptTemplate(val.system_prompt_template)
-        setSelectedRows([val.model_id])
-        setOriginalModelData([val.model_id])
+        setAssistantId(val.id)
+        setSystemPromptTemplate(val.systemPromptTemplate)
+        setSelectedRows([val.modelId])
+        setOriginalModelData([val.modelId])
         setOpenDrawer(true)
         setIsVisible(false)
     }
@@ -352,7 +352,7 @@ function Assistant() {
         setIsVisible(false)
 
         setDeleteValue(val.name)
-        setAssistantId(val.assistant_id)
+        setAssistantId(val.id)
     }
     const onDeleteCancel = () => {
         setIsVisible(true)
@@ -535,7 +535,7 @@ function Assistant() {
     }
     const handleRecordsSelected = (value: any, selectedRows: any[]) => {
         setRecordsSelected(value)
-        const tag = selectedRows.map(item => (item.name + '-' + item.model_id))
+        const tag = selectedRows.map(item => (item.name + '-' + item.id))
         setSelectedRows(tag)
     }
 
@@ -572,7 +572,7 @@ function Assistant() {
         <div className={styles["assistants"]}>
 
             <Spin spinning={loading} wrapperClassName={styles.spinloading}>
-                <ModalTable title='New assistant' loading={loading} updatePrevButton={updatePrevButton} hasMore={assistantHasMore} id="assistant_id" ifSelect={false} columns={columns} name="assistant" dataSource={assistantsList} onChildEvent={handleChildEvent} onOpenDrawer={handleCreatePrompt} />
+                <ModalTable title='New assistant' loading={loading} updatePrevButton={updatePrevButton} hasMore={assistantHasMore} id="id" ifSelect={false} columns={columns} name="assistant" dataSource={assistantsList} onChildEvent={handleChildEvent} onOpenDrawer={handleCreatePrompt} />
             </Spin>
             <Drawer
                 className={styles['drawer-assistants']}
@@ -609,7 +609,7 @@ function Assistant() {
                     </div>
                 </div>
             ]} title={t('projectSelectModel')} open={modalTableOpen} width={1000} className={`modal-inner-table ${styles['retrieval-model']}`}>
-                <ModalTable title='New model' onOpenDrawer={handleCreateModelId} name="model" updatePrevButton={updateModelPrevButton} defaultSelectedRowKeys={selectedModelRows} handleRecordsSelected={handleRecordsSelected} ifSelect={true} columns={modelsTableColumn} hasMore={hasModelMore} id='model_id' dataSource={options} onChildEvent={handleChildModelEvent}></ModalTable>
+                <ModalTable title='New model' onOpenDrawer={handleCreateModelId} name="model" updatePrevButton={updateModelPrevButton} defaultSelectedRowKeys={selectedModelRows} handleRecordsSelected={handleRecordsSelected} ifSelect={true} columns={modelsTableColumn} hasMore={hasModelMore} id='id' dataSource={options} onChildEvent={handleChildModelEvent}></ModalTable>
             </Modal>
             <ViewCode open={viewCodeOpen} data={viewCodeData} handleClose={handleCloseViewCode}/>
             <CreatePlugin handleConfirmRequest={handleConfirmRequest} open={pluginModalOpen} handleCloseModal={handleClosePluginModal}></CreatePlugin>

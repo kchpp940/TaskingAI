@@ -65,6 +65,11 @@ export const adaptBundle = (dto: BundleDto): BundleVM => {
     name: safeString(dto.name),
     description: safeString(dto.description),
     iconUrl: safeString(dto.icon_url),
+    registered: (dto as any).registered,
+    numPlugins: (dto as any).num_plugins,
+    developer: safeString((dto as any).developer),
+    credentialsSchema: safeObject(dto.credentials_schema, {}),
+    plugins: dto.plugins ? adaptPluginList(dto.plugins) : undefined,
   };
 };
 
@@ -75,7 +80,16 @@ export const adaptBundleList = (dtos: BundleDto[]): BundleVM[] => {
 export const adaptBundleInstance = (dto: BundleInstanceDto): BundleInstanceVM => {
   const displayCredentials = safeObject(dto.display_credentials, {});
   return {
-    ...dto,
+    id: dto.bundle_instance_id,
+    bundleId: dto.bundle_id,
+    name: dto.name,
+    description: dto.description,
+    iconUrl: dto.icon_url,
+    displayCredentials: displayCredentials,
+    plugins: dto.plugins,
+    metadata: dto.metadata,
+    createdTimestamp: dto.created_timestamp,
+    updatedTimestamp: dto.updated_timestamp,
     key: dto.bundle_instance_id,
     displayName: safeString(dto.name, DEFAULT_DISPLAY_NAME),
     hasCredentials: Object.keys(displayCredentials).length > 0,
@@ -88,5 +102,3 @@ export const adaptBundleInstance = (dto: BundleInstanceDto): BundleInstanceVM =>
 export const adaptBundleInstanceList = (dtos: BundleInstanceDto[]): BundleInstanceVM[] => {
   return dtos.map(adaptBundleInstance);
 };
-
-export const adaptBundleInstanceForTable = (vm: BundleInstanceVM): BundleInstanceVM & { key: string } => vm;

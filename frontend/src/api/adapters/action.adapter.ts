@@ -47,7 +47,21 @@ export const adaptAction = (dto: ActionDto): ActionVM => {
   const method = dto.method || endpointInfo.method;
 
   return {
-    ...dto,
+    id: dto.action_id,
+    name: dto.name,
+    operationId: dto.operation_id,
+    description: dto.description,
+    url: dto.url,
+    method: dto.method,
+    pathParamSchema: dto.path_param_schema,
+    queryParamSchema: dto.query_param_schema,
+    bodyParamSchema: dto.body_param_schema,
+    bodyType: dto.body_type,
+    functionDef: dto.function_def,
+    openapiSchema: openapiSchema,
+    authentication: dto.authentication,
+    createdTimestamp: dto.created_timestamp,
+    updatedTimestamp: dto.updated_timestamp,
     key: dto.action_id,
     methodLabel: getHttpMethodLabel(method),
     endpointInfo,
@@ -62,5 +76,3 @@ export const adaptAction = (dto: ActionDto): ActionVM => {
 export const adaptActionList = (dtos: ActionDto[]): ActionVM[] => {
   return dtos.map(adaptAction);
 };
-
-export const adaptActionForTable = (vm: ActionVM): ActionVM & { key: string } => vm;
