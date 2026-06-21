@@ -6,7 +6,7 @@ import PlayGroundImg from '@/assets/img/selectAssistantImg.svg?react'
 import type { GetProp, UploadProps } from 'antd';
 import { toast } from 'react-toastify';
 import { assistantService, modelService, actionService, pluginService, chatService, handleApiError, collectionService } from '@/api'
-import type { AssistantVM, ModelVM, ActionVM, AssistantUpdateRequest } from '@/api'
+import type { AssistantVM, ModelVM, ActionVM, CollectionVM, ChatVM, MessageGenerationLogVM, AssistantUpdateRequest } from '@/api'
 import CreatePlugin from '../createPlugin/index.tsx';
 import { setPlaygroundSelect, setPlaygroundAssistantId, } from '@/Redux/actions/playground.ts'
 import PlaygroundModel from '../playgroundModel/index.tsx';
@@ -59,7 +59,7 @@ function Playground() {
     const dispatch = useDispatch();
     const [assistantLimit, setAssistantLimit] = useState(20)
     const { search, pathname } = useLocation();
-    const [assistantId, setAssistantId] = useState<any>()
+    const [assistantId, setAssistantId] = useState<string | string[] | undefined>()
     const [optionList, setOptionList] = useState<AssistantVM[]>([])
     const divRef: any = useRef();
     const settingModal = useRef<any>()
@@ -69,9 +69,9 @@ function Playground() {
     const contentRef = useRef<any>();
     const [shouldSmoothScroll, setShouldSmoothScroll] = useState(true)
     const [Authentication, setAuthentication] = useState('')
-    const [selectedActionsRows, setSelectedActionsRows] = useState<any[]>([])
-    const [retrievalList, setRetrievalList] = useState<any[]>([])
-    const [listChats, setListChats] = useState<any[]>([])
+    const [selectedActionsRows, setSelectedActionsRows] = useState<{ type: string; value: string; name: string }[]>([])
+    const [retrievalList, setRetrievalList] = useState<CollectionVM[]>([])
+    const [listChats, setListChats] = useState<Array<ChatVM | { chat_id?: string; created_timestamp?: number; id?: string; createdTimestamp?: number }>>([])
     const [OpenDrawer, setOpenDrawer] = useState(false)
     const [options, setOptions] = useState<ModelVM[]>([])
     const [memoryValue, setMemoryValue] = useState('zero')
@@ -79,15 +79,15 @@ function Playground() {
     const childRef = useRef<ChildRefType | null>(null);
     const [modelLimit, setModelLimit] = useState(20)
     const [modalTableOpen, setModalTableOpen] = useState(false)
-    const [selectedModelRows, setSelectedRows] = useState<any[]>([])
-    const [originalModelData, setOriginalModelData] = useState<any[]>()
+    const [selectedModelRows, setSelectedRows] = useState<string[]>([])
+    const [originalModelData, setOriginalModelData] = useState<string[]>()
     const [modelOne, setModelOne] = useState(false);
     const [OpenActionDrawer, setOpenActionDrawer] = useState(false)
     const [sendButtonLoading, setSendButtonLoading] = useState(false)
     const [generateButtonLoading, setGenerateButtonLoading] = useState(false)
     const [openModalTable, setOpenModalTable] = useState(false)
     const [systemPromptVariables, setSystemPromptVariable] = useState('')
-    const [chatId, setChatId] = useState<any>('')
+    const [chatId, setChatId] = useState<string | undefined>('')
     const [actionList, setActionList] = useState<ActionVM[]>([])
     const [tipSchema, setTipSchema] = useState(false)
     const [checkBoxValue, setCheckBoxValue] = useState([1, 2, 4])
@@ -97,19 +97,19 @@ function Playground() {
     const [generateFlag, setGenerateFlag] = useState(false)
     const [retrievalConfig, setRetrievalConfig] = useState('user_message')
     const [custom, setCustom] = useState('')
-    const [selectedPluginGroup, setSelectedPluginGroup] = useState<any>([])
-    const [selectedActionsSelected, setSelectedActionSelected] = useState<any[]>([])
+    const [selectedPluginGroup, setSelectedPluginGroup] = useState<string[]>([])
+    const [selectedActionsSelected, setSelectedActionSelected] = useState<{ action_id: string; name: string }[]>([])
     const [inputValueOne, setInputValueOne] = useState(20)
     const [inputValueTwo, setInputValueTwo] = useState(200)
     const [radioValue, setRadioValue] = useState('none')
     const [openCollectionDrawer, setOpenCollectionDrawer] = useState(false)
     const [updateRetrievalPrevButton, setUpdateRetrievalPrevButton] = useState(false)
-    const [selectedRetrievalRows, setSelectedRetrievalRows] = useState<any[]>([])
+    const [selectedRetrievalRows, setSelectedRetrievalRows] = useState<Array<{ collection_id: string; name: string } | string>>([])
     const [hasMore, setHasMore] = useState(false)
     const [hasActionMore, setHasActionMore] = useState(false)
     const [hasModelMore, setHasModelMore] = useState(false)
     const [drawerDesc, setDrawerDesc] = useState('')
-    const [contentTalk, setContentTalk] = useState<any[]>([])
+    const [contentTalk, setContentTalk] = useState<Array<{ role: string; content: any; userId?: boolean; flag?: boolean; id?: string }>>([])
     const [contentHasMore, setContentHasMore] = useState(false)
     const [contentLoading, setContentLoading] = useState(false)
     const [contentTalkLoading, setContentTalkLoading] = useState(false)
@@ -127,8 +127,8 @@ function Playground() {
     const [modelHasMore, setModelHasMore] = useState(false)
     const [confirmLoading, setConfirmLoading] = useState(false);
     const [loadMoreHasMore, setLoadMoreHasMore] = useState(false)
-    const [debugArray1, setDebugArray1] = useState<any[]>([])
-    const [debugArray2, setDebugArray2] = useState<any[]>([])
+    const [debugArray1, setDebugArray1] = useState<MessageGenerationLogVM[]>([])
+    const [debugArray2, setDebugArray2] = useState<MessageGenerationLogVM[]>([])
     const [lottieAnimShow, setLottieAnimShow] = useState(false)
     const [contentDrawer, setContentDrawer] = useState(false)
     const [contentErrorDrawer, setContentErrorDrawer] = useState(false)
@@ -140,14 +140,14 @@ function Playground() {
     const [noPreviousMessage, setNoPreviousMessage] = useState(false)
     const [searchChatID, setSearchChatID] = useState('')
     const [assistantName, setAssistantName] = useState('')
-    const [imgList, setImgList] = useState<any[]>([])
+    const [imgList, setImgList] = useState<Array<{ name: string; url: string; loadingAnim?: boolean; uid: string; preview?: string }>>([])
 
     const [groupedMessages, setGroupedMessages] = useState({
         role: 'Assistant',
         content: { text: [{ event: '', color: '', event_id: '' }] },
         useId: 'user'
     });
-    const [modelName, setModelName] = useState<any>('')
+    const [modelName, setModelName] = useState<string | undefined>('')
     const drawerAssistantRef = useRef<any>(null);
     const [topk, setTopk] = useState(3)
     const [maxTokens, setMaxToken] = useState(4096)
@@ -995,7 +995,7 @@ function Playground() {
         dispatch(setPlaygroundAssistantId(id))
         setConfirmLoading(true)
         await handleListChats()
-        setDefaultSelectedAssistant(id)
+        setDefaultSelectedAssistant(id as any)
         setOpenAssistantModalTable(false)
         setConfirmLoading(false)
     }
@@ -1151,7 +1151,7 @@ function Playground() {
             after: contentTalk[0]?.id
         }
         setNoPreviousMessage(true)
-        fetchHistoryMessage(assistantId, chatId, params)
+        fetchHistoryMessage(assistantId as string, chatId as string, params)
         setContentLoading(false)
     }
     const handleInputValueOne = (value: number) => {
@@ -1544,7 +1544,7 @@ function Playground() {
                     </div>
                 </div>
             ]} title={t('projectAssistantRetrievalPlaceHolder')} open={openModalTable} width={1000} onCancel={handleCloseModal} className={`modal-inner-table ${styles['retrieval-model']}`}>
-                <ModalTable title='New collection' name='collection' updatePrevButton={updateRetrievalPrevButton} defaultSelectedRowKeys={selectedRetrievalRows} hangleFilterData={hangleFilterData} mode='multiple' handleRecordsSelected={handleCollectionSelected} ifSelect={true} columns={collectionTableColumn} dataSource={retrievalList} hasMore={hasMore} id='id' onChildEvent={handleChildRetrievalEvent} />
+                <ModalTable title='New collection' name='collection' updatePrevButton={updateRetrievalPrevButton} defaultSelectedRowKeys={selectedRetrievalRows as string[]} hangleFilterData={hangleFilterData} mode='multiple' handleRecordsSelected={handleCollectionSelected} ifSelect={true} columns={collectionTableColumn} dataSource={retrievalList} hasMore={hasMore} id='id' onChildEvent={handleChildRetrievalEvent} />
             </Modal>
             <Modal closeIcon={<img src={closeIcon} alt="closeIcon" className={styles['img-icon-close']} />} centered onCancel={handleModalClose} footer={[
                 <div className='footer-group' key='group'>

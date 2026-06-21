@@ -82,6 +82,7 @@ const CreatePlugin = forwardRef((props:any, ref) => {
             const params = {
                 name: bundleName,
                 bundle_id: bundleId,
+                credentials: {},
             }
             try {
                 setNextLoading1(true)

@@ -42,8 +42,8 @@ function Assistant() {
     const { tooltipEditTitle, tooltipPlaygroundTitle,tooltipMoreTitle } = tooltipTitle();
     const [bundilesList, setBundlesList] = useState([])
     const [isVisible, setIsVisible] = useState(true);
-    const [record, setRecord] = useState<any>({})
-    const [originalModelData, setOriginalModelData] = useState<any>()
+    const [record, setRecord] = useState<assistantListType>({} as assistantListType)
+    const [originalModelData, setOriginalModelData] = useState<string[]>()
     const { t } = useTranslation();
     const columns = [...assistantTableColumn]
     columns.push(
@@ -80,19 +80,19 @@ function Assistant() {
     const [OpenDrawer, setOpenDrawer] = useState(false)
     const [Authentication, setAuthentication] = useState('')
     const [radioValue, setRadioValue] = useState('none')
-    const [recordsSelected, setRecordsSelected] = useState<any>([])
-    const [selectedModelRows, setSelectedRows] = useState<any[]>([])
-    const [selectedActionsSelected, setSelectedActionSelected] = useState<any[]>([])
-    const [selectedRetrievalRows, setSelectedRetrievalRows] = useState<any[]>([])
+    const [recordsSelected, setRecordsSelected] = useState<string[]>([])
+    const [selectedModelRows, setSelectedRows] = useState<string[]>([])
+    const [selectedActionsSelected, setSelectedActionSelected] = useState<{ action_id: string; name: string }[]>([])
+    const [selectedRetrievalRows, setSelectedRetrievalRows] = useState<Array<{ collection_id: string; name: string } | string>>([])
     const [options, setOptions] = useState<ModelVM[]>([])
     const [limit, setLimit] = useState(20)
     const [modelLimit, setModelLimit] = useState(20)
     const [updatePrevButton, setUpdatePrevButton] = useState(false)
     const [updateModelPrevButton, setUpdateModelPrevButton] = useState(false)
-    const [selectedActionsRows, setSelectedActionsRows] = useState<any[]>([])
+    const [selectedActionsRows, setSelectedActionsRows] = useState<{ type: string; value: string; name?: string }[]>([])
     const [OpenDeleteModal, setOpenDeleteModal] = useState(false)
     const [drawerTitle, setDrawerTitle] = useState('Create Assistant')
-    const [drawerName, setDrawerName] = useState<any>('')
+    const [drawerName, setDrawerName] = useState<string | undefined>('')
     const [hasActionMore, setHasActionMore] = useState(false)
     const [tipSchema, setTipSchema] = useState(false)
     const [deleteValue, setDeleteValue] = useState('')
@@ -117,14 +117,14 @@ function Assistant() {
     const [openCollectionDrawer, setOpenCollectionDrawer] = useState(false)
     const [inputValueTwo, setInputValueTwo] = useState(2000)
     const [pluginModalOpen, setPluginModalOpen] = useState(false)
-    const [selectedPluginGroup, setSelectedPluginGroup] = useState<any>([])
+    const [selectedPluginGroup, setSelectedPluginGroup] = useState<string[]>([])
     const [assistantPlaygroundIdParams, setAssistantPlaygroundIdParams] = useState('')
     const navigate = useNavigate()
     const [topk, setTopk] = useState(3)
     const [maxTokens, setMaxToken] = useState(4096)
     const [viewCodeOpen, setViewCodeOpen] = useState(false)
     const [viewCodeData, setViewCodeData] = useState('')
-    const [modelName, setModelName] = useState<any>('')
+    const [modelName, setModelName] = useState<string | undefined>('')
     useEffect(() => {
         const params = {
             limit: 20,

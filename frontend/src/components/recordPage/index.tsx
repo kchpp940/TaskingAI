@@ -5,6 +5,7 @@ import {
     Space, Input, Spin, Tooltip, Modal, InputNumber, Select, Upload
 } from 'antd';
 import type { UploadProps } from 'antd';
+import type { UploadFile } from 'antd/es/upload/interface';
 import PdfIcon from '../../assets/img/pdfIcon.svg?react'
 import TxtIcon from '../../assets/img/txtIcon.svg?react'
 import DocsIcon from '../../assets/img/docsIcon.svg?react'
@@ -153,7 +154,7 @@ function RecordPage({ collectionId,fetChData }: { collectionId: string,fetChData
     const [title, setTitle] = useState('')
     const [chunkOverlap, setChunkOverlap] = useState(10)
     const [type, setType] = useState<RecordType>('text')
-    const [fileList, setFileList] = useState<any>([]);
+    const [fileList, setFileList] = useState<Array<Partial<UploadFile> & { name?: string; size?: number; uid?: string }>>([]);
     const [websiteValue, setWebsiteValue] = useState('')
     const [fileLoading, setFileLoading] = useState(false);
 
@@ -210,7 +211,7 @@ function RecordPage({ collectionId,fetChData }: { collectionId: string,fetChData
             payload.append("module", 'retrieval')
             payload.append("purpose", 'record_file')
             payload.append("file", file.file);
-            setFileList([file.file]);
+            setFileList([file.file as any]);
             setFileLoading(true);
             try {
                 const result = await recordService.uploadFile(payload)

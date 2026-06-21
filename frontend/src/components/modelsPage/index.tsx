@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, ChangeEvent } from 'react'
 import { Modal, Button, Spin, Space, Input, Form, Drawer, Tooltip, ConfigProvider, Select, InputNumber, Switch, Popover } from 'antd'
 import styles from './modelsPage.module.scss'
-import { modelService, authService, handleApiError } from '@/api'
+import { modelService, authService, handleApiError, ModelVM } from '@/api'
 import tooltipTitle from '../../contents/tooltipTitle'
 import { ChildRefType, formDataType } from '../../constant/index.ts'
 import { useSelector, useDispatch } from 'react-redux';
@@ -44,15 +44,7 @@ function ModelsPage() {
         required: []
     })
     const [resetButtonShow, setResetButtonShow] = useState(true)
-    const [record, setRecord] = useState<any>({
-        name: '',
-        id: '',
-        modelSchemaId: '',
-        providerId: '',
-        type: '',
-        properties: {},
-        providerModelId: ''
-    });
+    const [record, setRecord] = useState<Partial<ModelVM>>({});
     const [limit, setLimit] = useState(20)
     const [isVisible, setIsVisible] = useState(true);
     const [formShow, setFormShow] = useState(false)

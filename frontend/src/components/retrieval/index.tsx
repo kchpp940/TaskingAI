@@ -16,7 +16,8 @@ import ChunkPage from '../chunkPage/index.tsx';
 import ModalFooterEnd from '../modalFooterEnd/index'
 import { toast } from 'react-toastify'
 import { collectionService, modelService, authService, handleApiError } from '@/api';
-import { CollectionVM, ModelVM } from '@/api/viewmodels';
+import { CollectionVM, ModelVM } from '@/api';
+import { createRetrieval, deleteRetrieval, updateRetrieval } from '../../axios/retrieval';
 import tooltipTitle from '../../contents/tooltipTitle'
 import { useNavigate } from 'react-router-dom';
 import DeleteModal from '../deleteModal/index.tsx'
@@ -32,7 +33,7 @@ function Retrieval() {
     const { retrievalLists } = useSelector((state: any) => state.retrieval);
     const dispatch = useDispatch();
     const [isVisible, setIsVisible] = useState(true);
-    const [record, setRecord] = useState<CollectionVM>({} as CollectionVM)
+    const [record, setRecord] = useState<CollectionVM & { collection_id?: string; model_name?: string; embedding_model_id?: string; embedding_size?: number }>({} as CollectionVM & { collection_id?: string; model_name?: string; embedding_model_id?: string; embedding_size?: number })
 
     const { modelsTableColumn, collectionTableColumn } = CommendComponent();
     const { tooltipEditTitle, tooltipRecordTitle, tooltipMoreTitle } = tooltipTitle();
@@ -56,7 +57,7 @@ function Retrieval() {
         key: 'action',
         fixed: 'right',
         width: 157,
-        render: (_: string, record: object) => (
+        render: (_: string, record: CollectionVM & { collection_id?: string; model_name?: string; embedding_model_id?: string; embedding_size?: number }) => (
             <Space size="middle">
                 <div className='table-edit-icon' onClick={() => handleRecord(record, 'Records')}>
                     <Tooltip placement='bottom' color="#fff" arrow={false} overlayClassName='table-tooltip' title={tooltipRecordTitle}>
@@ -94,12 +95,12 @@ function Retrieval() {
     const [OpenDeleteModal, setOpenDeleteModal] = useState(false)
     const [recordOpen, setRecordOpen] = useState(false)
     const [drawerTitle, setDrawerTitle] = useState('Create Collection')
-    const [drawerName, setDrawerName] = useState<any>('')
+    const [drawerName, setDrawerName] = useState<string | undefined>('')
     const [embeddingSize, setEmbeddingSize] = useState(0)
     const [deleteValue, setDeleteValue] = useState('')
     const [recordsSelected, setRecordsSelected] = useState([])
     const [selectedRows, setSelectedRows] = useState<string[]>([])
-    const [selectedModelName, setSelectedModelName] = useState<any>('')
+    const [selectedModelName, setSelectedModelName] = useState<string[] | string | undefined>('')
     const [options, setOptions] = useState<ModelVM[]>([])
     const childRef = useRef<ChildRefType | null>(null);
     const [selectValue, setSelectValue] = useState(1000)
@@ -205,7 +206,7 @@ function Retrieval() {
         setEditDisabled(false)
         setIsVisible(false)
     }
-    const handleRecord = (val: any, recordOrChunk: string) => {
+    const handleRecord = (val: CollectionVM & { collection_id?: string; model_name?: string; embedding_model_id?: string; embedding_size?: number }, recordOrChunk: string) => {
         setIsVisible(false)
         setCollectionRecordId(val.collection_id)
         const routeData = recordOrChunk.toLowerCase()
@@ -214,7 +215,7 @@ function Retrieval() {
         setRecordOrChunk(recordOrChunk)
         setRecordOpen(true)
     }
-    const handleEdit = (val: any) => {
+    const handleEdit = (val: CollectionVM & { collection_id?: string; model_name?: string; embedding_model_id?: string; embedding_size?: number }) => {
         setDrawerTitle('Edit Collection')
         setDrawerName(val.name ? val.name : undefined)
         setEditDisabled(true)
@@ -228,7 +229,7 @@ function Retrieval() {
         setOpenDrawer(true)
     }
 
-    const handleDelete = (val: any) => {
+    const handleDelete = (val: CollectionVM & { collection_id?: string; model_name?: string; embedding_model_id?: string; embedding_size?: number }) => {
         setOpenDeleteModal(true)
         setIsVisible(false)
 
@@ -260,7 +261,7 @@ function Retrieval() {
             setUpdateRetrievalPrevButton(true)
 
         } catch (error) {
-            const apiError = error as ApiErrorResponse;
+            const apiError = error as any;
             const errorMessage: string = apiError.response.data.error.message;
             toast.error(errorMessage)
         }
@@ -300,7 +301,7 @@ function Retrieval() {
             setUpdateRetrievalPrevButton(true)
 
         } catch (error) {
-            const apiError = error as ApiErrorResponse;
+            const apiError = error as any;
             const errorMessage: string = apiError.response.data.error.message;
             toast.error(errorMessage)
         }
