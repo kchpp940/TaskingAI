@@ -75,27 +75,14 @@ export interface ToolRefVM {
   typeLabel: string;
 }
 
-export interface AssistantVM {
-  id: string;
+export type AssistantVM = AssistantDto & {
   key: string;
-  assistantId: string;
-  modelId: string;
-  modelName: string;
-  name: string;
-  description: string;
-  systemPromptTemplate: string[];
   systemPromptText: string;
-  memory: AssistantMemoryVM;
-  tools: ToolRefVM[];
   actionTools: ToolRefVM[];
   pluginTools: ToolRefVM[];
-  retrievals: RetrievalRefVM[];
-  retrievalConfigs: RetrievalConfigVM;
   createdAt: string;
   updatedAt: string;
-  createdTimestamp: number;
-  updatedTimestamp: number;
-}
+};
 
 export interface AssistantCreateRequest {
   model_id: string;

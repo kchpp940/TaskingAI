@@ -2,8 +2,7 @@ import styles from './assistants.module.scss'
 import { fetchModelsData, fetchRetrievalData, fetchActionData } from '../../Redux/actions.ts'
 import { useDispatch, useSelector } from 'react-redux';
 import { PlusOutlined } from '@ant-design/icons';
-import { getAssistantsList, createAssistant, deleteAssistant, updateAssistant } from '../../axios/assistant.ts'
-import { getModelsList } from '../../axios/models.ts'
+import { assistantService, modelService, actionService, authService, handleApiError, AssistantVM, ModelVM, ActionVM, ActionBulkCreateRequest } from '@/api'
 import { useEffect, useState, useRef } from 'react'
 import ModelModal from '../modelModal/index'
 import { fetchPluginData } from '../../Redux/actions';
@@ -12,20 +11,16 @@ import tooltipTitle from '../../contents/tooltipTitle.tsx'
 import { fetchAssistantsData } from '@/Redux/actions.ts'
 import CreateCollection from '../createCollection/index.tsx';
 import { setPlaygroundSelect, setPlaygroundAssistantId, } from '@/Redux/actions/playground.ts'
-import { getActionsList, createActions } from '../../axios/actions.ts'
 import EditIcon from '../../assets/img/editIcon.svg?react'
 import ViewCode from '@/commonComponent/viewCode/index.tsx'
 import MoreIcon from '@/assets/img/moreIcon.svg?react'
-import { getViewCode } from '@/axios/index'
 import JumpIcon from '../../assets/img/assistantJumpIcon.svg?react'
-import { getFirstMethodAndEndpoint } from '@/utils/util'
 import { toast } from 'react-toastify'
 import DeleteModal from '../deleteModal/index.tsx'
 import DrawerAssistant from '../drawerAssistant/index'
 import closeIcon from '../../assets/img/x-close.svg'
 import { useNavigate } from 'react-router-dom';
 import { ChildRefType } from '../../constant/index.ts'
-import ApiErrorResponse from '@/constant/index.ts'
 import ActionDrawer from '../actionDrawer/index.tsx';
 import ModalFooterEnd from '../modalFooterEnd/index'
 import { useTranslation } from "react-i18next";
@@ -80,7 +75,7 @@ function Assistant() {
             ),
         },
     );
-    const [assistantsList, setAssistantsList] = useState([])
+    const [assistantsList, setAssistantsList] = useState<AssistantVM[]>([])
     const drawerAssistantRef = useRef<any>(null);
     const [OpenDrawer, setOpenDrawer] = useState(false)
     const [Authentication, setAuthentication] = useState('')
@@ -89,7 +84,7 @@ function Assistant() {
     const [selectedModelRows, setSelectedRows] = useState<any[]>([])
     const [selectedActionsSelected, setSelectedActionSelected] = useState<any[]>([])
     const [selectedRetrievalRows, setSelectedRetrievalRows] = useState<any[]>([])
-    const [options, setOptions] = useState([])
+    const [options, setOptions] = useState<ModelVM[]>([])
     const [limit, setLimit] = useState(20)
     const [modelLimit, setModelLimit] = useState(20)
     const [updatePrevButton, setUpdatePrevButton] = useState(false)
@@ -106,7 +101,7 @@ function Assistant() {
     const [memoryValue, setMemoryValue] = useState('zero')
     const [retrievalConfig, setRetrievalConfig] = useState('user_message')
     const [OpenActionDrawer, setOpenActionDrawer] = useState(false)
-    const [actionList, setActionList] = useState([])
+    const [actionList, setActionList] = useState<ActionVM[]>([])
     const [editLoading, setLoading] = useState(false)
     const childRef = useRef<ChildRefType | null>(null);
     const [hasModelMore, setHasModelMore] = useState(false)
@@ -139,7 +134,7 @@ function Assistant() {
         fetchModelsList()
         fetchDataRetrievalData(params)
         const fetchCodeData = async () => {
-            const res = await getViewCode('assistant')
+            const res = await authService.getViewCode('assistant')
             setViewCodeData(res.data)
         }
         fetchCodeData()
@@ -148,18 +143,15 @@ function Assistant() {
         setAssistantPlaygroundIdParams(assistantPlaygroundId)
     }, [assistantPlaygroundId])
     useEffect(() => {
-        // setLoading(true);
         if (users.data.length > 0) {
-            const data = users.data.map((item: any) => {
-                return {
-                    ...item,
-                    key: item.assistant_id,
-                    promptTemplate: item.system_prompt_template.join(' '),
-                    memory: item.memory.type,
-                    max_messages: item.memory.max_messages,
-                    max_tokens: item.memory.max_tokens,
-                }
-            })
+            const data = users.data.map((item: any) => ({
+                ...item,
+                key: item.assistant_id,
+                promptTemplate: item.system_prompt_template?.join(' ') || '',
+                memory: item.memory?.type || 'zero',
+                max_messages: item.memory?.max_messages,
+                max_tokens: item.memory?.max_tokens,
+            }))
             setAssistantsList(data);
             setAssistantHasMore(users.has_more)
         } else {
@@ -189,22 +181,11 @@ function Assistant() {
     );
     const fetchData = async (params: object) => {
         try {
-            const res: any = await getAssistantsList(params)
-            const data = res.data.map((item: any) => {
-                return {
-                    ...item,
-                    key: item.assistant_id,
-                    promptTemplate: item.system_prompt_template.join(' '),
-                    memory: item.memory.type,
-                    max_messages: item.memory.max_messages,
-                    max_tokens: item.memory.max_tokens,
-                }
-            })
-            setAssistantsList(data);
-            setAssistantHasMore(res.has_more)
-
+            const result = await assistantService.list(params)
+            setAssistantsList(result.data);
+            setAssistantHasMore(result.has_more)
         } catch (error) {
-            console.log(error)
+            handleApiError(error)
         }
     };
     const handleJump = (value: assistantListType) => {
@@ -259,20 +240,15 @@ function Assistant() {
             }
         }
         try {
-
-            await createActions(commonData);
+            await actionService.bulkCreate(commonData as unknown as ActionBulkCreateRequest);
             const params = {
                 limit: 20,
             }
             await fetchActionsList(params, 'create');
         } catch (error) {
-            console.error(error);
-            const ErrorType = error as ApiErrorResponse;
-            const errorMessage: string = ErrorType.response.data.error.message;
-            toast.error(errorMessage)
+            handleApiError(error)
         } finally {
             setOpenActionDrawer(false)
-        
         }
     }
     const fetchDataRetrievalData = async (params:any) => {
@@ -303,20 +279,11 @@ function Assistant() {
             dispatch(fetchActionData(20) as any);
         }
         try {
-            const res: any = await getActionsList(params)
-            const data = res.data.map((item: any) => {
-                return {
-                    ...item,
-                    key: item.action_id,
-                    method: getFirstMethodAndEndpoint(item.openapi_schema)?.method,
-                    endpoint: getFirstMethodAndEndpoint(item.openapi_schema)?.endpoint,
-                    created_timestamp: formatTimestamp(item.created_timestamp)
-                }
-            })
-            setActionList(data)
-            setHasActionMore(res.has_more)
+            const result = await actionService.list(params)
+            setActionList(result.data)
+            setHasActionMore(result.has_more)
         } catch (error) {
-            console.log(error)
+            handleApiError(error)
         }
     }
 
@@ -404,19 +371,15 @@ function Assistant() {
             if (assistantId === assistantPlaygroundIdParams) {
                 await dispatch(setPlaygroundAssistantId(''))
             }
-            await deleteAssistant(assistantId)
+            await assistantService.delete(assistantId)
             dispatch(fetchAssistantsData() as any)
             await fetchData(params)
             setOpenDeleteModal(false)
 
         } catch (error) {
-            console.log(error)
-            const errorType = error as ApiErrorResponse
-            const errorMessage: string = errorType.response.data.error.message;
-            toast.error(errorMessage)
+            handleApiError(error)
         } finally {
             setIsVisible(true)
-        
         }
     }
     const handleMemoryChange1 = (value: string) => {
@@ -447,13 +410,13 @@ function Assistant() {
             tools: inputPluginValues,
             retrievals: inputValueMap,
             memory: {
-                type: memoryValue,
+                type: memoryValue as any,
                 max_messages: Number(inputValueOne) || undefined,
                 max_tokens: Number(inputValueTwo) || undefined
             },
             retrieval_configs: {
                 top_k: Number(topk) || undefined,
-                method: retrievalConfig,
+                method: retrievalConfig as any,
                 max_tokens: Number(maxTokens) || undefined
             }
         }
@@ -472,10 +435,10 @@ function Assistant() {
         try {
             setLoading(true)
             if (assistantId) {
-                await updateAssistant(assistantId, params)
+                await assistantService.update(assistantId, params)
                 setOpenDrawer(false)
             } else {
-                await createAssistant(params)
+                await assistantService.create(params)
                 setOpenDrawer(false)
             }
             const params1 = {
@@ -485,10 +448,7 @@ function Assistant() {
             dispatch(fetchAssistantsData() as any)
             setUpdatePrevButton(true)
         } catch (error) {
-            console.log(error)
-            const apiError = error as ApiErrorResponse;
-            const errorMessage: string = apiError.response.data.error.message;
-            toast.error(errorMessage)
+            handleApiError(error)
         } finally {
             setLoading(false)
             setIsVisible(true)
@@ -505,17 +465,11 @@ function Assistant() {
             ...value
         }
         try {
-            const res: any = await getModelsList(params, 'chat_completion')
-            const data = res.data.map((item: any) => {
-                return {
-                    ...item,
-                    key: item.model_id
-                }
-            })
-            setOptions(data)
-            setHasModelMore(res.has_more)
+            const result = await modelService.listByType('chat_completion', params)
+            setOptions(result.data)
+            setHasModelMore(result.has_more)
         } catch (error) {
-            console.log(error)
+            handleApiError(error)
         }
     }
     const handleCancel = () => {

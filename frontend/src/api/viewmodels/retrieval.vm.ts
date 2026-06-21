@@ -16,27 +16,13 @@ export interface CollectionDto {
   updated_timestamp: number;
 }
 
-export interface CollectionVM {
-  id: string;
+export type CollectionVM = CollectionDto & {
   key: string;
-  collectionId: string;
-  name: string;
-  displayName: string;
-  description: string;
-  numRecords: number;
-  numChunks: number;
-  capacity: number;
   capacityText: string;
   remainingCapacity: number;
-  embeddingModelId: string;
-  embeddingSize: number;
-  status: CollectionStatus;
-  statusLabel: string;
+  displayName: string;
   createdAt: string;
-  updatedAt: string;
-  createdTimestamp: number;
-  updatedTimestamp: number;
-}
+};
 
 export interface CollectionCreateRequest {
   name: string;

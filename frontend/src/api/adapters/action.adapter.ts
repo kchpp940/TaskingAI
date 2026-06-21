@@ -8,8 +8,6 @@ import {
   formatDateTime,
   safeArray,
   safeObject,
-  safeString,
-  withTableKey,
 } from './utils';
 
 const HTTP_METHOD_LABELS: Record<ActionMethod, string> = {
@@ -49,27 +47,15 @@ export const adaptAction = (dto: ActionDto): ActionVM => {
   const method = dto.method || endpointInfo.method;
 
   return {
-    id: dto.action_id,
+    ...dto,
     key: dto.action_id,
-    actionId: dto.action_id,
-    name: safeString(dto.name, 'Untitled Action'),
-    operationId: safeString(dto.operation_id),
-    description: safeString(dto.description),
-    url: safeString(dto.url),
-    method,
     methodLabel: getHttpMethodLabel(method),
-    bodyType: dto.body_type,
-    endpoint: endpointInfo.endpoint || safeString(dto.url),
     endpointInfo,
     hasPathParams: safeArray(Object.keys(dto.path_param_schema || {}), []).length > 0,
     hasQueryParams: safeArray(Object.keys(dto.query_param_schema || {}), []).length > 0,
     hasBodyParams: safeArray(Object.keys(dto.body_param_schema || {}), []).length > 0,
-    openapiSchema,
-    authentication: safeObject(dto.authentication, { type: 'none' }),
     createdAt: formatDateTime(dto.created_timestamp),
     updatedAt: formatDateTime(dto.updated_timestamp),
-    createdTimestamp: dto.created_timestamp,
-    updatedTimestamp: dto.updated_timestamp,
   };
 };
 
@@ -77,4 +63,4 @@ export const adaptActionList = (dtos: ActionDto[]): ActionVM[] => {
   return dtos.map(adaptAction);
 };
 
-export const adaptActionForTable = (vm: ActionVM): ActionVM & { key: string } => withTableKey(vm);
+export const adaptActionForTable = (vm: ActionVM): ActionVM & { key: string } => vm;

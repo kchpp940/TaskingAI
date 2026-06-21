@@ -25,33 +25,22 @@ export interface RecordDto {
   updated_timestamp: number;
 }
 
-export interface RecordVM {
-  id: string;
+export type RecordVM = RecordDto & {
   key: string;
-  recordId: string;
-  collectionId: string;
-  title: string;
   displayTitle: string;
-  status: RecordStatus;
   statusLabel: string;
   statusClass: string;
-  numChunks: number;
-  type: RecordType;
   typeLabel: string;
   isTextType: boolean;
   isFileType: boolean;
   isWebType: boolean;
-  content: string;
   textContent?: string;
   fileContent?: FileContent;
   webContent?: WebContent;
   displayContent: string;
-  metadata: Record<string, string>;
   createdAt: string;
   updatedAt: string;
-  createdTimestamp: number;
-  updatedTimestamp: number;
-}
+};
 
 export interface RecordCreateRequest {
   type: RecordType;

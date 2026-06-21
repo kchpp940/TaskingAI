@@ -19,7 +19,6 @@ import {
   safeNumber,
   safeObject,
   safeString,
-  withTableKey,
 } from './utils';
 
 const MEMORY_TYPE_LABELS: Record<MemoryType, string> = {
@@ -92,32 +91,16 @@ export const adaptToolRefList = (dtos: ToolRefDto[]): ToolRefVM[] => {
 };
 
 export const adaptAssistant = (dto: AssistantDto): AssistantVM => {
-  const memory = adaptAssistantMemory(dto.memory);
-  const retrievalConfigs = adaptRetrievalConfig(dto.retrieval_configs);
   const tools = adaptToolRefList(dto.tools);
-  const retrievals = adaptRetrievalRefList(dto.retrievals);
-  const systemPromptTemplate = safeArray(dto.system_prompt_template, []);
 
   return {
-    id: dto.assistant_id,
+    ...dto,
     key: dto.assistant_id,
-    assistantId: dto.assistant_id,
-    modelId: dto.model_id,
-    modelName: safeString(dto.model_name, 'Unknown Model'),
-    name: safeString(dto.name, 'Untitled Assistant'),
-    description: safeString(dto.description),
-    systemPromptTemplate,
-    systemPromptText: systemPromptTemplate.join(' '),
-    memory,
-    tools,
+    systemPromptText: safeArray(dto.system_prompt_template, []).join(' '),
     actionTools: tools.filter(t => t.type === 'action'),
     pluginTools: tools.filter(t => t.type === 'plugin'),
-    retrievals,
-    retrievalConfigs,
     createdAt: formatDateTime(dto.created_timestamp),
     updatedAt: formatDateTime(dto.updated_timestamp),
-    createdTimestamp: dto.created_timestamp,
-    updatedTimestamp: dto.updated_timestamp,
   };
 };
 
@@ -125,4 +108,7 @@ export const adaptAssistantList = (dtos: AssistantDto[]): AssistantVM[] => {
   return dtos.map(adaptAssistant);
 };
 
-export const adaptAssistantForTable = (vm: AssistantVM): AssistantVM & { key: string } => withTableKey(vm);
+export const adaptAssistantForTable = (vm: AssistantVM): AssistantVM & { key: string } => ({
+  ...vm,
+  key: vm.assistant_id,
+});

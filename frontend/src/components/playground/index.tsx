@@ -3,30 +3,26 @@ import { useState, useEffect, useRef, } from 'react'
 import { Select, Button, Checkbox, Input, Drawer, Spin, Modal, Collapse, Space, Upload, Image } from 'antd'
 import { PlusOutlined, RightOutlined, LoadingOutlined, SearchOutlined, EyeOutlined } from '@ant-design/icons';
 import PlayGroundImg from '@/assets/img/selectAssistantImg.svg?react'
-import { FullApiResponse } from '@/constant/index.ts'
 import type { GetProp, UploadProps } from 'antd';
 import { toast } from 'react-toastify';
-import { getPluginList } from '../../axios/plugin.ts'
+import { assistantService, modelService, actionService, pluginService, chatService, handleApiError } from '@/api'
+import type { AssistantVM, ModelVM, ActionVM, AssistantUpdateRequest } from '@/api'
 import CreatePlugin from '../createPlugin/index.tsx';
 import { setPlaygroundSelect, setPlaygroundAssistantId, } from '@/Redux/actions/playground.ts'
 import PlaygroundModel from '../playgroundModel/index.tsx';
 import CopyOutlined from '../../assets/img/copyIcon.svg?react'
 import ModelModal from '../modelModal/index'
 import ErrorIcon from '../../assets/img/errorIcon.svg?react'
-import { getModelsList } from '../../axios/models.ts'
+import { formatTimestamp } from '@/utils/util'
 import CreateCollection from '../createCollection/index.tsx';
 import ModalSettingIcon from '../../assets/img/modalSettingIcon.svg?react'
-import { formatTimestamp, getFirstMethodAndEndpoint } from '@/utils/util'
 import ModalTable from '../modalTable/index'
 import { commonDataType } from '@/constant/assistant.ts'
 import LoadingAnim from '../../assets/img/loadingAnim.svg?react'
-import ApiErrorResponse, { ChildRefType } from '../../constant/index.ts'
+import { ChildRefType } from '../../constant/index.ts'
 import ChatIcon from '../../assets/img/chatIcon.svg?react'
-import { getActionsList, createActions } from '../../axios/actions.ts'
 import { getRetrievalList } from '../../axios/retrieval.ts';
 import PlaygroundImg from '@/assets/img/playgroundImg.svg?react'
-import { openChat, sendMessage, generateMessage, getListChats, getHistoryMessage, getChatItem, deleteChatItem } from '@/axios/playground'
-import { getAssistantDetail, updateAssistant, getAssistantsList } from '@/axios/assistant'
 import closeIcon from '../../assets/img/x-close.svg'
 type FileType = Parameters<GetProp<UploadProps, 'beforeUpload'>>[0];
 import AnimLoadingImg from '@/assets/img/loadingAnimImg.svg?react'
@@ -65,7 +61,7 @@ function Playground() {
     const [assistantLimit, setAssistantLimit] = useState(20)
     const { search, pathname } = useLocation();
     const [assistantId, setAssistantId] = useState<any>()
-    const [optionList, setOptionList] = useState<any>([])
+    const [optionList, setOptionList] = useState<AssistantVM[]>([])
     const divRef: any = useRef();
     const settingModal = useRef<any>()
     const [retrievalLimit, setRetrievalLimit] = useState(20)
@@ -78,7 +74,7 @@ function Playground() {
     const [retrievalList, setRetrievalList] = useState<any[]>([])
     const [listChats, setListChats] = useState<any[]>([])
     const [OpenDrawer, setOpenDrawer] = useState(false)
-    const [options, setOptions] = useState([])
+    const [options, setOptions] = useState<ModelVM[]>([])
     const [memoryValue, setMemoryValue] = useState('zero')
     const [recordsSelected, setRecordsSelected] = useState<string[]>([])
     const childRef = useRef<ChildRefType | null>(null);
@@ -93,7 +89,7 @@ function Playground() {
     const [openModalTable, setOpenModalTable] = useState(false)
     const [systemPromptVariables, setSystemPromptVariable] = useState('')
     const [chatId, setChatId] = useState<any>('')
-    const [actionList, setActionList] = useState([])
+    const [actionList, setActionList] = useState<ActionVM[]>([])
     const [tipSchema, setTipSchema] = useState(false)
     const [checkBoxValue, setCheckBoxValue] = useState([1, 2, 4])
     const [contentValue, setContentValue] = useState('')
@@ -230,15 +226,11 @@ function Playground() {
     }, [])
     const getBundleList = async (params: object) => {
         try {
-            const res: any = await getPluginList(params)
-            setBundlesList(res.data)
+            const result = await pluginService.listBundleInstances(params)
+            setBundlesList(result.data)
         } catch (e) {
-            const apiError = e as ApiErrorResponse;
-            const errorMessage: string = apiError.response.data.error.message;
-            toast.error(errorMessage)
+            handleApiError(e)
         }
-
-
     }
     const handleChangeSearchChatID = (e: any) => {
         setSearchChatID(e.target.value)
@@ -281,37 +273,24 @@ function Playground() {
         return updatedGroupedMessages;
     }
     const fetchAssistantsList = async (value?: any) => {
-        let res;
-        if (value) {
-            res = await getAssistantsList(value) as FullApiResponse
-        } else {
-            res = await getAssistantsList({ limit: assistantLimit || 20 }) as FullApiResponse
-        }
-        // const res: any = await getAssistantsList({ limit: assistantLimit || 20})
-        const data = res.data.map((item: any) => {
-            return {
-                ...item,
-                key: item.assistant_id
-            }
-        })
-        setOptionList(data)
+        const result = await assistantService.list(value || { limit: assistantLimit || 20 })
+        setOptionList(result.data)
         if (assistantId) {
             const id = assistantId[0].split('-')[1] ? assistantId[0].split('-')[1] : assistantId[0]
-            const item1 = data.find((item: any) => (item.assistant_id === id))
+            const item1 = result.data.find((item: AssistantVM) => (item.assistant_id === id))
             setAssistantId([`${item1.name}-${item1.assistant_id}`])
         }
-        setModelHasMore(res.has_more)
-
+        setModelHasMore(result.has_more)
     }
     const initialFunction = async () => {
         const queryParams = new URLSearchParams(search);
-        const assistantId = queryParams.get('assistant_id')
+        const assistantIdParam = queryParams.get('assistant_id')
         const params = {
             limit: 20,
         }
-        if (assistantId && assistantId === assistantPlaygroundId) {
+        if (assistantIdParam && assistantIdParam === assistantPlaygroundId) {
             setLoading(true)
-            setAssistantId([assistantId])
+            setAssistantId([assistantIdParam])
             setAssistantName(localStorage.getItem('assistantName') || 'Untitled Assistant')
             try {
                 const listChats: any = localStorage.getItem('listChats')
@@ -339,19 +318,17 @@ function Playground() {
                 }
             } catch (e) {
                 console.log(e)
-                const apiError = e as ApiErrorResponse
-                const message = apiError.response.data.error.message
-                toast.error(message)
+                handleApiError(e)
             }
             setLoading(false)
-        } else if (assistantId) {
+        } else if (assistantIdParam) {
             setLoading(true)
             try {
-                const assistantDetail = await getAssistantDetail(assistantId)
-                setAssistantName(assistantDetail.data.name ? assistantDetail.data.name : 'Untitled Assistant')
-                setAssistantId([assistantId])
-                dispatch(setPlaygroundAssistantId(assistantId))
-                const res2: any = await getListChats(assistantId, params)
+                const assistantDetail = await assistantService.get(assistantIdParam)
+                setAssistantName(assistantDetail.name ? assistantDetail.name : 'Untitled Assistant')
+                setAssistantId([assistantIdParam])
+                dispatch(setPlaygroundAssistantId(assistantIdParam))
+                const res2 = await chatService.listChats(assistantIdParam, params)
                 setListChats(res2.data)
                 localStorage.setItem('listChats', JSON.stringify(res2.data))
                 setLoadMoreHasMore(res2.has_more)
@@ -361,7 +338,7 @@ function Playground() {
                     order: 'desc',
                 }
                 if (res2.data.length > 0) {
-                    const res: any = await getHistoryMessage(assistantId, res2.data[0]?.chat_id, param)
+                    const res = await chatService.listMessages(assistantIdParam, res2.data[0]?.chat_id, param)
                     const data = res.data.reverse()
                     setContentHasMore(res.has_more)
                     localStorage.setItem('contentHasMore', JSON.stringify(res.has_more))
@@ -389,17 +366,15 @@ function Playground() {
             setShouldSmoothScroll(true)
         }
         try {
-            const res: any = await getHistoryMessage(assistantId, chatId, param)
-            const data = res.data.reverse()
-            setContentHasMore(res.has_more)
+            const result = await chatService.listMessages(assistantId, chatId, param)
+            const data = result.data.reverse()
+            setContentHasMore(result.has_more)
             const contentTalk1: any = localStorage.getItem('contentTalk')
-            localStorage.setItem('contentHasMore', JSON.stringify(res.has_more))
+            localStorage.setItem('contentHasMore', JSON.stringify(result.has_more))
             localStorage.setItem('contentTalk', JSON.stringify([...data, ...JSON.parse(contentTalk1)]) as any)
             setContentTalk(prevValues => [...data, ...prevValues])
         } catch (error) {
-            const apiError = error as ApiErrorResponse;
-            const errorMessage: string = apiError.response.data.error.message;
-            toast.error(errorMessage)
+            handleApiError(error)
         }
 
     }
@@ -443,42 +418,22 @@ function Playground() {
     }
     const fetchActionsList = async (params: Record<string, any>) => {
         try {
-            const res: any = await getActionsList(params)
-            const data = res.data.map((item: any) => {
-                return {
-                    ...item,
-                    key: item.action_id,
-                    method: getFirstMethodAndEndpoint(item.openapi_schema)?.method,
-                    endpoint: getFirstMethodAndEndpoint(item.openapi_schema)?.endpoint
-                }
-            })
-
-            setActionList(data)
-            setHasActionMore(res.has_more)
+            const result = await actionService.list(params)
+            setActionList(result.data)
+            setHasActionMore(result.has_more)
         } catch (error) {
             console.log(error)
-            const apiResponse = error as ApiErrorResponse
-            const message = apiResponse.response.data.error.message
-            toast.error(message)
+            handleApiError(error)
         }
     }
     const fetchModelsList = async (params: Record<string, any>) => {
-
         try {
-            const res: any = await getModelsList(params, 'chat_completion')
-            const data = res.data.map((item: any) => {
-                return {
-                    ...item,
-                    key: item.model_id
-                }
-            })
-            setOptions(data)
-            setHasModelMore(res.has_more)
+            const result = await modelService.listByType('chat_completion', params)
+            setOptions(result.data)
+            setHasModelMore(result.has_more)
         } catch (error) {
             console.log(error)
-            const apiResponse = error as ApiErrorResponse
-            const message = apiResponse.response.data.error.message
-            toast.error(message)
+            handleApiError(error)
         }
     }
 
@@ -491,13 +446,12 @@ function Playground() {
         } else {
             id = assistantId[0]
         }
-        const res = await getAssistantDetail(id)
-        const { data } = res
-        const { name, description, model_name, model_id, system_prompt_template, tools, retrievals, memory, retrieval_configs } = data
+        const detail = await assistantService.get(id)
+        const { name, description, model_name, model_id, system_prompt_template, tools, retrievals, memory, retrieval_configs } = detail
         setDrawerName(name)
         setDrawerDesc(description)
-        setSelectedRows(model_id)
-        setOriginalModelData(model_id)
+        setSelectedRows(model_id as any)
+        setOriginalModelData(model_id as any)
         setModelName(model_name)
         setSelectedActionSelected(tools.filter((item: any) => item.type === 'action').map((item: any) => {
             return {
@@ -506,9 +460,9 @@ function Playground() {
             }
         }))
         setSelectedPluginGroup(tools?.filter((item: any) => item.type === 'plugin').map((item: any) => item.id?.split('/')[1]));
-        setRetrievalConfig(retrieval_configs.method || 'user_message')
-        setTopk(retrieval_configs.top_k || 3)
-        setMaxToken(retrieval_configs.max_tokens || 4096)
+        setRetrievalConfig(retrieval_configs?.method || 'user_message')
+        setTopk(retrieval_configs?.top_k || 3)
+        setMaxToken(retrieval_configs?.max_tokens || 4096)
         setMemoryValue(memory.type)
         setInputValueOne(memory.max_messages)
         setInputValueTwo(memory.max_tokens)
@@ -591,7 +545,7 @@ function Playground() {
 
         try {
             if (id) {
-                await updateAssistant(id, params)
+                await assistantService.update(id, params as AssistantUpdateRequest)
                 setAssistantName(drawerName)
                 setOpenDrawer(false)
             }
@@ -600,9 +554,7 @@ function Playground() {
             dispatch(fetchAssistantsData() as any)
             setUpdatePrevButton(true)
         } catch (error) {
-            const apiError = error as ApiErrorResponse;
-            const errorMessage: string = apiError.response.data.error.message;
-            toast.error(errorMessage)
+            handleApiError(error)
         }
 
     }
@@ -624,12 +576,11 @@ function Playground() {
             id = assistantId[0]
         }
         try {
-            const res = await openChat(id, params)
-            const { data } = res
-            localStorage.setItem('listChats', JSON.stringify([{ chat_id: data.chat_id, created_timestamp: data.created_timestamp }, ...listChats]))
-            setListChats(prevValues => [{ chat_id: data.chat_id, created_timestamp: data.created_timestamp }, ...prevValues])
-            setChatId(data.chat_id)
-            localStorage.setItem('chatId', data.chat_id)
+            const chat = await chatService.createChat(id, params)
+            localStorage.setItem('listChats', JSON.stringify([{ chat_id: chat.chat_id, created_timestamp: chat.created_timestamp }, ...listChats]))
+            setListChats(prevValues => [{ chat_id: chat.chat_id, created_timestamp: chat.created_timestamp }, ...prevValues])
+            setChatId(chat.chat_id)
+            localStorage.setItem('chatId', chat.chat_id)
             setContentTalk([])
             setContentValue('')
             setImgList([])
@@ -638,9 +589,7 @@ function Playground() {
             setContentHasMore(false)
             setGenerateButtonLoading(false)
         } catch (error) {
-            const apiResponse = error as ApiErrorResponse
-            const message = apiResponse.response.data.error.message
-            toast.error(message)
+            handleApiError(error)
             console.log(error)
         }
         setLoading(false)
@@ -651,7 +600,7 @@ function Playground() {
             return toast.error('The image is still uploading, please wait.')
         }
         const params = {
-            role: 'user',
+            role: 'user' as const,
             content: {
                 text: contentValue && imgList.length ?
                     contentValue + imgList.map(item => `![${item.name}](${item.url})`).join('') :
@@ -683,18 +632,17 @@ function Playground() {
         if (flag === 'flag' && lastMessage) {
             setSendGenerateLoading(true)
             if (contentValue) {
-                const res = await sendMessage(id, chatId, params)
-                const { data } = res
+                const msg = await chatService.sendMessage(id, chatId, params)
                 setContentTalk(prevValues => [...prevValues, {
                     role: 'user',
-                    content: { text: imgList.length ? (contentValue + '\n' + imgList.map(item => `![${item.name}](${item.url})`).join('') + '\n') : data.content.text },
+                    content: { text: imgList.length ? (contentValue + '\n' + imgList.map(item => `![${item.name}](${item.url})`).join('') + '\n') : msg.content?.text },
                     userId: true,
                     flag: true
                 }])
                 const contentTalk1: any = localStorage.getItem('contentTalk')
                 localStorage.setItem('contentTalk', JSON.stringify([...JSON.parse(contentTalk1), {
                     role: 'user',
-                    content: { text: imgList.length ? (contentValue + '\n' + imgList.map(item => `![${item.name}](${item.url})`).join('') + '\n') : data.content.text },
+                    content: { text: imgList.length ? (contentValue + '\n' + imgList.map(item => `![${item.name}](${item.url})`).join('') + '\n') : msg.content?.text },
                     userId: true,
                     flag: true
                 }]))
@@ -718,18 +666,17 @@ function Playground() {
                 } else {
                     setSendButtonLoading(true)
                 }
-                const res = await sendMessage(id, chatId, params)
-                const { data } = res
+                const msg = await chatService.sendMessage(id, chatId, params)
                 setContentTalk(prevValues => [...prevValues, {
                     role: 'user',
-                    content: { text: imgList.length ? (contentValue + '\n' + imgList.map(item => `![${item.name}](${item.url})`).join('') + '\n') : data.content.text },
+                    content: { text: imgList.length ? (contentValue + '\n' + imgList.map(item => `![${item.name}](${item.url})`).join('') + '\n') : msg.content?.text },
                     userId: true,
                     flag: true
                 }])
                 const contentTalk1: any = localStorage.getItem('contentTalk')
                 localStorage.setItem('contentTalk', JSON.stringify([...JSON.parse(contentTalk1), {
                     role: 'user',
-                    content: { text: imgList.length ? (contentValue + '\n' + imgList.map(item => `![${item.name}](${item.url})`).join('') + '\n') : data.content.text },
+                    content: { text: imgList.length ? (contentValue + '\n' + imgList.map(item => `![${item.name}](${item.url})`).join('') + '\n') : msg.content?.text },
                     userId: true,
                     flag: true
                 }]))
@@ -741,9 +688,7 @@ function Playground() {
                 setContentValue('')
                 setImgList([])
             } catch (error) {
-                const apiError = error as ApiErrorResponse;
-                const errorMessage: string = apiError.response.data.error.message;
-                toast.error(errorMessage)
+                handleApiError(error)
                 console.log(error)
             }
         }
@@ -776,18 +721,16 @@ function Playground() {
         }
         if (searchChatID) {
             try {
-                const res = await getChatItem(id, searchChatID)
-                setListChats([res.data])
-                localStorage.setItem('listChats', JSON.stringify([{ chat_id: res.data.chat_id, created_timestamp: res.data.created_timestamp }]))
+                const chat = await chatService.getChat(id, searchChatID)
+                setListChats([chat])
+                localStorage.setItem('listChats', JSON.stringify([{ chat_id: chat.chat_id, created_timestamp: chat.created_timestamp }]))
             } catch (error) {
-                const apiError = error as ApiErrorResponse;
-                const errorMessage: string = apiError.response.data.error.message;
-                toast.error(errorMessage)
+                handleApiError(error)
             }
         } else {
-            const res = await getListChats(id, { limit: 20 })
-            setListChats(res.data)
-            localStorage.setItem('listChats', JSON.stringify(res.data))
+            const result = await chatService.listChats(id, { limit: 20 })
+            setListChats(result.data)
+            localStorage.setItem('listChats', JSON.stringify(result.data))
         }
 
     }
@@ -856,12 +799,11 @@ function Playground() {
 
         if (!stream && !debug) {
             try {
-                const res = await generateMessage(id, chatId, params)
-                const { data } = res
+                const msg = await chatService.generateMessage(id, chatId, params)
                 setContentTalk(prevValues => [...prevValues, {
                     role: 'Assistant',
                     content: {
-                        text: data.content.text
+                        text: msg.content?.text
                     },
                     userId: false,
                     flag: true
@@ -870,15 +812,13 @@ function Playground() {
                 localStorage.setItem('contentTalk', JSON.stringify([...JSON.parse(contentTalk1), {
                     role: 'Assistant',
                     content: {
-                        text: data.content.text
+                        text: msg.content?.text
                     },
                     userId: false,
                     flag: true
                 }]))
             } catch (error) {
-                const apiError = error as ApiErrorResponse;
-                const errorMessage: string = apiError.response.data.error.message;
-                toast.error(errorMessage)
+                handleApiError(error)
                 console.log(error)
             } finally {
                 setGenerateButtonLoading(false)
@@ -986,9 +926,7 @@ function Playground() {
             setUpdateRetrievalPrevButton(true)
 
         } catch (e) {
-            const apiResponse = e as ApiErrorResponse
-            const message = apiResponse.response.data.error.message
-            toast.error(message)
+            handleApiError(e)
             console.log(e)
         }
     }
@@ -1031,24 +969,22 @@ function Playground() {
     const handleListChats = async () => {
         const splitArray = assistantId[0].split('-')
         const id = splitArray.slice(-1)[0]
-        const res = await getListChats(id, { limit: 20 })
-        localStorage.setItem('listChats', JSON.stringify(res.data))
-        setListChats(res.data)
-        setChatId(res.data[0]?.chat_id)
-        localStorage.setItem('chatId', res.data[0]?.chat_id)
+        const result = await chatService.listChats(id, { limit: 20 })
+        localStorage.setItem('listChats', JSON.stringify(result.data))
+        setListChats(result.data)
+        setChatId(result.data[0]?.chat_id)
+        localStorage.setItem('chatId', result.data[0]?.chat_id)
         const param = {
             order: 'desc',
         }
-        if (res.data[0]) {
+        if (result.data[0]) {
             try {
-                const res1 = await getHistoryMessage(id, res.data[0]?.chat_id, param)
+                const res1 = await chatService.listMessages(id, result.data[0]?.chat_id, param)
                 const data = res1.data.reverse()
                 localStorage.setItem('contentTalk', JSON.stringify(data))
                 setContentTalk(res1.data)
             } catch (e) {
-                const apiResponse = e as ApiErrorResponse
-                const message = apiResponse.response.data.error.message
-                toast.error(message)
+                handleApiError(e)
             }
 
         }
@@ -1093,7 +1029,7 @@ function Playground() {
         }
         try {
 
-            await createActions(commonData);
+            await actionService.bulkCreate(commonData as any);
             const params = {
                 limit: 20,
             }
@@ -1202,11 +1138,11 @@ function Playground() {
             id = assistantId[0]
         }
         setNoPreviousChat(true)
-        const res: any = await getListChats(id, params)
-        localStorage.setItem('listChats', JSON.stringify([...listChats, ...res.data]))
-        localStorage.setItem('chatsHasMore', JSON.stringify(res.has_more))
-        setListChats(prevValues => [...prevValues, ...res.data])
-        setLoadMoreHasMore(res.has_more)
+        const result = await chatService.listChats(id, params)
+        localStorage.setItem('listChats', JSON.stringify([...listChats, ...result.data]))
+        localStorage.setItem('chatsHasMore', JSON.stringify(result.has_more))
+        setListChats(prevValues => [...prevValues, ...result.data])
+        setLoadMoreHasMore(result.has_more)
     }
     const handleContentLodaMore = async () => {
         setContentLoading(true)
@@ -1250,14 +1186,14 @@ function Playground() {
             } else {
                 id = assistantId[0]
             }
-            await deleteChatItem(id, chatId)
-            const res: any = await getListChats(id, { limit: 20 })
-            setListChats(res.data)
-            localStorage.setItem('listChats', JSON.stringify(res.data))
-            localStorage.setItem('chatsHasMore', JSON.stringify(res.has_more))
-            setLoadMoreHasMore(res.has_more)
-            setChatId(res.data[0]?.chat_id)
-            localStorage.setItem('chatId', res.data[0]?.chat_id)
+            await chatService.deleteChat(id, chatId)
+            const result = await chatService.listChats(id, { limit: 20 })
+            setListChats(result.data)
+            localStorage.setItem('listChats', JSON.stringify(result.data))
+            localStorage.setItem('chatsHasMore', JSON.stringify(result.has_more))
+            setLoadMoreHasMore(result.has_more)
+            setChatId(result.data[0]?.chat_id)
+            localStorage.setItem('chatId', result.data[0]?.chat_id)
             const param1 = {
                 order: 'desc',
                 limit: 20
@@ -1265,14 +1201,12 @@ function Playground() {
             setContentTalk([])
             setContentValue('')
             setImgList([])
-            if (res.data[0]?.chat_id) {
-                await fetchHistoryMessage(id, res.data[0]?.chat_id, param1)
+            if (result.data[0]?.chat_id) {
+                await fetchHistoryMessage(id, result.data[0]?.chat_id, param1)
             }
 
         } catch (error) {
-            const apiError = error as ApiErrorResponse;
-            const errorMessage: string = apiError.response.data.error.message;
-            toast.error(errorMessage)
+            handleApiError(error)
         }
         setOpenDeleteModal(false)
     }

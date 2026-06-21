@@ -38,29 +38,16 @@ export interface ActionEndpointInfo {
   endpoint: string;
 }
 
-export interface ActionVM {
-  id: string;
+export type ActionVM = ActionDto & {
   key: string;
-  actionId: string;
-  name: string;
-  operationId: string;
-  description: string;
-  url: string;
-  method: ActionMethod;
   methodLabel: string;
-  bodyType: ActionBodyType;
-  endpoint: string;
   endpointInfo: ActionEndpointInfo;
   hasPathParams: boolean;
   hasQueryParams: boolean;
   hasBodyParams: boolean;
-  openapiSchema: Record<string, any>;
-  authentication: ActionAuthentication;
   createdAt: string;
   updatedAt: string;
-  createdTimestamp: number;
-  updatedTimestamp: number;
-}
+};
 
 export interface ActionBulkCreateRequest {
   openapi_schema: Record<string, any>;

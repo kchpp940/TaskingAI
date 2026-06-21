@@ -8,10 +8,7 @@ import {
 } from '../viewmodels';
 import {
   formatDateTime,
-  safeNumber,
-  safeString,
   parseJsonSafe,
-  withTableKey,
 } from './utils';
 
 const RECORD_TYPE_LABELS: Record<RecordType, string> = {
@@ -67,36 +64,26 @@ const parseContentByType = (
 };
 
 export const adaptRecord = (dto: RecordDto): RecordVM => {
-  const content = safeString(dto.content);
+  const content = dto.content ?? '';
   const parsedContent = parseContentByType(dto.type, content);
-  const displayTitle = safeString(dto.title, DEFAULT_DISPLAY_TITLE);
+  const displayTitle = dto.title || DEFAULT_DISPLAY_TITLE;
 
   return {
-    id: dto.record_id,
+    ...dto,
     key: dto.record_id,
-    recordId: dto.record_id,
-    collectionId: dto.collection_id,
-    title: dto.title,
     displayTitle,
-    status: dto.status,
     statusLabel: getRecordStatusLabel(dto.status),
     statusClass: getRecordStatusClass(dto.status),
-    numChunks: safeNumber(dto.num_chunks, 0),
-    type: dto.type,
     typeLabel: getRecordTypeLabel(dto.type),
     isTextType: dto.type === 'text',
     isFileType: dto.type === 'file',
     isWebType: dto.type === 'web',
-    content,
     textContent: parsedContent.textContent,
     fileContent: parsedContent.fileContent,
     webContent: parsedContent.webContent,
     displayContent: parsedContent.displayContent,
-    metadata: dto.metadata || {},
     createdAt: formatDateTime(dto.created_timestamp),
     updatedAt: formatDateTime(dto.updated_timestamp),
-    createdTimestamp: dto.created_timestamp,
-    updatedTimestamp: dto.updated_timestamp,
   };
 };
 
@@ -104,4 +91,7 @@ export const adaptRecordList = (dtos: RecordDto[]): RecordVM[] => {
   return dtos.map(adaptRecord);
 };
 
-export const adaptRecordForTable = (vm: RecordVM): RecordVM & { key: string } => withTableKey(vm);
+export const adaptRecordForTable = (vm: RecordVM): RecordVM & { key: string } => ({
+  ...vm,
+  key: vm.record_id,
+});

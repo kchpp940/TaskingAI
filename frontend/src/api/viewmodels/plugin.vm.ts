@@ -72,24 +72,14 @@ export interface BundleVM {
   iconUrl: string;
 }
 
-export interface BundleInstanceVM {
-  id: string;
+export type BundleInstanceVM = BundleInstanceDto & {
   key: string;
-  bundleInstanceId: string;
-  bundleId: string;
-  name: string;
   displayName: string;
-  description: string;
-  iconUrl: string;
-  displayCredentials: Record<string, any>;
   hasCredentials: boolean;
-  plugins: PluginVM[];
   pluginCount: number;
   createdAt: string;
   updatedAt: string;
-  createdTimestamp: number;
-  updatedTimestamp: number;
-}
+};
 
 export interface PluginParameterVM {
   key: string;

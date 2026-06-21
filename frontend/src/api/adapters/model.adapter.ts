@@ -8,7 +8,7 @@ import {
   ModelType,
   ModelProperties,
 } from '../viewmodels';
-import { formatDateTime, safeObject, safeString, safeNumber, withTableKey } from './utils';
+import { formatDateTime, safeObject, safeString, safeNumber } from './utils';
 
 const MODEL_TYPE_LABELS: Record<ModelType, string> = {
   chat_completion: 'Chat Completion',
@@ -21,31 +21,20 @@ const getModelTypeLabel = (type: ModelType): string => MODEL_TYPE_LABELS[type] |
 
 export const adaptModel = (dto: ModelDto): ModelVM => {
   const properties: ModelProperties = safeObject(dto.properties, {});
-  const vm: ModelVM = {
-    id: dto.model_id,
+  return {
+    ...dto,
     key: dto.model_id,
-    modelId: dto.model_id,
-    modelSchemaId: dto.model_schema_id,
-    providerId: dto.provider_id,
-    providerModelId: safeString(dto.provider_model_id),
-    name: safeString(dto.name, 'Untitled Model'),
-    type: dto.type,
     typeLabel: getModelTypeLabel(dto.type),
     isChatCompletion: dto.type === 'chat_completion',
     isTextEmbedding: dto.type === 'text_embedding',
     isRerank: dto.type === 'rerank',
     isWildcard: dto.type === 'wildcard',
-    properties,
     supportsFunctionCall: safeNumber(properties.function_call ? 1 : 0, 0) === 1 || !!properties.function_call,
     supportsStreaming: safeNumber(properties.streaming ? 1 : 0, 0) === 1 || !!properties.streaming,
-    configs: safeObject(dto.configs, {}),
     displayCredentials: safeObject(dto.display_credentials, {}),
     createdAt: formatDateTime(dto.created_timestamp),
     updatedAt: formatDateTime(dto.updated_timestamp),
-    createdTimestamp: dto.created_timestamp,
-    updatedTimestamp: dto.updated_timestamp,
   };
-  return vm;
 };
 
 export const adaptModelList = (dtos: ModelDto[]): ModelVM[] => {
@@ -54,17 +43,8 @@ export const adaptModelList = (dtos: ModelDto[]): ModelVM[] => {
 
 export const adaptModelSchema = (dto: ModelSchemaDto): ModelSchemaVM => {
   return {
-    id: dto.model_schema_id,
-    modelSchemaId: dto.model_schema_id,
-    name: safeString(dto.name),
-    description: safeString(dto.description),
-    providerId: dto.provider_id,
-    providerModelId: dto.provider_model_id,
-    type: dto.type,
+    ...dto,
     typeLabel: getModelTypeLabel(dto.type),
-    properties: safeObject(dto.properties, {}),
-    allowedConfigs: dto.allowed_configs || [],
-    configSchemas: dto.config_schemas || [],
   };
 };
 
@@ -73,12 +53,9 @@ export const adaptModelSchemaList = (dtos: ModelSchemaDto[]): ModelSchemaVM[] =>
 };
 
 export const adaptProvider = (dto: ProviderDto): ProviderVM => {
-  const credentialsSchema = safeObject(dto.credentials_schema, { properties: {}, required: [] });
+  const credentialsSchema = safeObject(dto.credentials_schema, { type: '', properties: {}, required: [] });
   return {
-    id: dto.provider_id,
-    providerId: dto.provider_id,
-    name: safeString(dto.name),
-    description: safeString(dto.description),
+    ...dto,
     credentialsSchema: {
       properties: safeObject(credentialsSchema.properties, {}),
       required: Array.isArray(credentialsSchema.required) ? credentialsSchema.required : [],
@@ -93,4 +70,4 @@ export const adaptProviderList = (dtos: ProviderDto[]): ProviderVM[] => {
   return dtos.map(adaptProvider);
 };
 
-export const adaptModelForTable = (vm: ModelVM): ModelVM & { key: string } => withTableKey(vm);
+export const adaptModelForTable = (vm: ModelVM): ModelVM & { key: string } => ({ ...vm, key: vm.key || vm.model_id });

@@ -13,15 +13,13 @@ import MdIcon from '../../assets/img/mdIcon.svg?react'
 import TextIcon from '../../assets/img/textIcon.svg?react'
 import WebIcon from '../../assets/img/webIcon.svg?react'
 import LoadingAnim from '../../assets/img/loadingAnim.svg?react'
-import ApiErrorResponse from '@/constant/index'
+import { recordService, handleApiError, RecordVM, RecordType } from '@/api'
 import UploadIcon from '../../assets/img/uploadIcon.svg?react'
 import styles from './recordPage.module.scss'
 import { toast } from 'react-toastify';
 import tooltipTitle from '../../contents/tooltipTitle'
 import DeleteModal from '../deleteModal/index.tsx';
 import CopyOutlined from '../../assets/img/copyIcon.svg?react'
-import { getRecordsList, createRecord, deleteRecord, updateRecord, uploadFile } from '../../axios/record.ts'
-import { formatTimestamp } from '@/utils/util'
 import DeleteIcon from '../../assets/img/deleteIcon.svg?react'
 import CloseIcon from '../../assets/img/x-close.svg?react'
 import EditIcon from '../../assets/img/editIcon.svg?react'
@@ -84,8 +82,8 @@ function RecordPage({ collectionId,fetChData }: { collectionId: string,fetChData
             dataIndex: 'content',
             key: 'content',
             ellipsis: true,
-            render: (text: string, record: any) => (
-                record.type === 'text' ? <Tooltip title={text} placement='bottom'><span style={{ maxWidth: '480px', overflow: 'hidden', display: 'flex', alignItems: 'center' }}><TextIcon style={{ marginRight: '4px' }} />{text}</span></Tooltip> : (record.type === 'web' ? <span style={{ maxWidth: '480px', overflow: 'hidden', display: 'flex', alignItems: 'center' }}><WebIcon style={{ marginRight: '4px' }} />{JSON.parse(record.content).url}</span> : <span style={{ maxWidth: '480px', overflow: 'hidden', display: 'flex', alignItems: 'center' }}>{IconReverse(JSON.parse(record.content).file_name)}{JSON.parse(record.content).file_name}</span>)
+            render: (_text: string, record: any) => (
+                record.type === 'text' ? <Tooltip title={record.textContent || record.content} placement='bottom'><span style={{ maxWidth: '480px', overflow: 'hidden', display: 'flex', alignItems: 'center' }}><TextIcon style={{ marginRight: '4px' }} />{record.textContent || record.content}</span></Tooltip> : (record.type === 'web' ? <span style={{ maxWidth: '480px', overflow: 'hidden', display: 'flex', alignItems: 'center' }}><WebIcon style={{ marginRight: '4px' }} />{record.webContent?.url || ''}</span> : <span style={{ maxWidth: '480px', overflow: 'hidden', display: 'flex', alignItems: 'center' }}>{IconReverse(record.fileContent?.file_name || '')}{record.fileContent?.file_name || ''}</span>)
             ),
         },
         {
@@ -93,9 +91,9 @@ function RecordPage({ collectionId,fetChData }: { collectionId: string,fetChData
             dataIndex: 'status',
             key: 'status',
             width: 180,
-            render: (text: string) => (
-                <div className={text}>
-                    {text}
+            render: (text: string, record: any) => (
+                <div className={record.statusClass || text}>
+                    {record.statusLabel || text}
                 </div>
             )
         },
@@ -115,7 +113,7 @@ function RecordPage({ collectionId,fetChData }: { collectionId: string,fetChData
             width: 180,
             dataIndex: 'created_timestamp',
             key: 'created_timestamp',
-            render: (time: number) => <div>{formatTimestamp(time)}</div>
+            render: (time: number) => <div>{time}</div>
         },
         {
             title: `${t('projectColumnActions')}`,
@@ -140,7 +138,7 @@ function RecordPage({ collectionId,fetChData }: { collectionId: string,fetChData
     ];
     const [updatePrevButton, setUpdatePrevButton] = useState(false)
     const [hasMore, setHasMore] = useState(false)
-    const [recordList, setRecordList] = useState([])
+    const [recordList, setRecordList] = useState<RecordVM[]>([])
     const [fileId, setFileId] = useState('')
     const [loading, setLoading] = useState(false);
     const [createOpenModal, setCreateOpenModal] = useState(false)
@@ -154,7 +152,7 @@ function RecordPage({ collectionId,fetChData }: { collectionId: string,fetChData
     const [chunkSize, setChunkSize] = useState(200)
     const [title, setTitle] = useState('')
     const [chunkOverlap, setChunkOverlap] = useState(10)
-    const [type, setType] = useState('text')
+    const [type, setType] = useState<RecordType>('text')
     const [fileList, setFileList] = useState<any>([]);
     const [websiteValue, setWebsiteValue] = useState('')
     const [fileLoading, setFileLoading] = useState(false);
@@ -215,14 +213,12 @@ function RecordPage({ collectionId,fetChData }: { collectionId: string,fetChData
             setFileList([file.file]);
             setFileLoading(true);
             try {
-                const res = await uploadFile(payload)
-                setFileId(res.data.file_id)
+                const result = await recordService.uploadFile(payload)
+                setFileId(result.file_id)
             } catch (error) {
-                const apiError = error as ApiErrorResponse
-                const message = apiError.response.data.error.message
+                handleApiError(error)
                 setFileList([])
                 setFileId('')
-                toast.error(message)
             } finally {
                 setFileLoading(false);
             }
@@ -279,15 +275,9 @@ function RecordPage({ collectionId,fetChData }: { collectionId: string,fetChData
     const fetchData = async (collectionId: string, params: Record<string, any>) => {
         setLoading(true);
         try {
-            const res: any = await getRecordsList(collectionId, params)
-            const data = res.data.map((item: any) => {
-                return {
-                    ...item,
-                    key: item.record_id
-                }
-            })
-            setRecordList(data);
-            setHasMore(res.has_more)
+            const result = await recordService.list(collectionId, params)
+            setRecordList(result.data);
+            setHasMore(result.has_more)
 
         } catch (error) {
             console.log(error)
@@ -323,7 +313,7 @@ function RecordPage({ collectionId,fetChData }: { collectionId: string,fetChData
     }
     const onDeleteConfirm = async () => {
         try {
-            await deleteRecord(collectionId, deleteId)
+            await recordService.delete(collectionId, deleteId)
             const params = {
                 limit: limit || 20,
             }
@@ -346,15 +336,15 @@ function RecordPage({ collectionId,fetChData }: { collectionId: string,fetChData
 
         setCreateOpenModal(true)
         if (record.type === 'web') {
-            setContentValue(JSON.parse(record.content).url)
+            setContentValue(record.webContent?.url || '')
         } else if (record.type === 'file') {
-            setFileId(JSON.parse(record.content).file_id)
+            setFileId(record.fileContent?.file_id || '')
             setFileList([{
-                name: JSON.parse(record.content).file_name,
-                size: JSON.parse(record.content).file_size
+                name: record.fileContent?.file_name || '',
+                size: record.fileContent?.file_size || 0
             }])
         } else if (record.type === 'text') {
-            setContentValue(record.content)
+            setContentValue(record.textContent || record.content)
         }
         setChunkSize(Number(localStorage.getItem('chunkSize')))
         setChunkOverlap(Number(localStorage.getItem('chunkOverlap')))
@@ -397,11 +387,9 @@ function RecordPage({ collectionId,fetChData }: { collectionId: string,fetChData
             }
             if (!recordId) {
                 try {
-                    await createRecord(collectionId, params)
+                    await recordService.create(collectionId, params)
                 } catch (error) {
-                    const apiError = error as ApiErrorResponse
-                    const message = apiError.response.data.error.message
-                    toast.error(message)
+                    handleApiError(error)
                 }
             } else {
                 const param1 = {
@@ -409,12 +397,10 @@ function RecordPage({ collectionId,fetChData }: { collectionId: string,fetChData
                     metadata: {}
                 }
                 try {
-                    await updateRecord(collectionId, recordId, param1)
+                    await recordService.update(collectionId, recordId, param1)
 
                 } catch (error) {
-                    const apiError = error as ApiErrorResponse
-                    const message = apiError.response.data.error.message
-                    toast.error(message)
+                    handleApiError(error)
                 }
             }
             localStorage.setItem('chunkSize', String(chunkSize) || '200')
@@ -435,7 +421,7 @@ function RecordPage({ collectionId,fetChData }: { collectionId: string,fetChData
     const handleContentChange = (e: any) => {
         setContentValue(e.target.value)
     }
-    const handleTypeChange = (value: string) => {
+    const handleTypeChange = (value: RecordType) => {
 
         setType(value)
     }

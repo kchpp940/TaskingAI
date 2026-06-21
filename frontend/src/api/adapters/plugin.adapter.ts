@@ -14,7 +14,6 @@ import {
   safeNumber,
   safeObject,
   safeString,
-  withTableKey,
 } from './utils';
 
 const DEFAULT_DISPLAY_NAME = 'Untitled Plugin';
@@ -74,25 +73,15 @@ export const adaptBundleList = (dtos: BundleDto[]): BundleVM[] => {
 };
 
 export const adaptBundleInstance = (dto: BundleInstanceDto): BundleInstanceVM => {
-  const plugins = adaptPluginList(dto.plugins);
   const displayCredentials = safeObject(dto.display_credentials, {});
   return {
-    id: dto.bundle_instance_id,
+    ...dto,
     key: dto.bundle_instance_id,
-    bundleInstanceId: dto.bundle_instance_id,
-    bundleId: dto.bundle_id,
-    name: dto.name,
     displayName: safeString(dto.name, DEFAULT_DISPLAY_NAME),
-    description: safeString(dto.description),
-    iconUrl: safeString(dto.icon_url),
-    displayCredentials,
     hasCredentials: Object.keys(displayCredentials).length > 0,
-    plugins,
-    pluginCount: safeNumber(plugins.length, 0),
+    pluginCount: safeNumber(dto.plugins.length, 0),
     createdAt: formatDateTime(dto.created_timestamp),
     updatedAt: formatDateTime(dto.updated_timestamp),
-    createdTimestamp: dto.created_timestamp,
-    updatedTimestamp: dto.updated_timestamp,
   };
 };
 
@@ -100,6 +89,4 @@ export const adaptBundleInstanceList = (dtos: BundleInstanceDto[]): BundleInstan
   return dtos.map(adaptBundleInstance);
 };
 
-export const adaptBundleInstanceForTable = (
-  vm: BundleInstanceVM,
-): BundleInstanceVM & { key: string } => withTableKey(vm);
+export const adaptBundleInstanceForTable = (vm: BundleInstanceVM): BundleInstanceVM & { key: string } => vm;

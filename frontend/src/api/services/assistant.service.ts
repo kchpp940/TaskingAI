@@ -15,7 +15,7 @@ export const assistantService = {
   async list(params: AssistantListParams = {}): Promise<PaginatedResponse<AssistantVM>> {
     const query = buildListParams('assistant_id', { limit: DEFAULT_LIMIT, ...params });
     const url = `${ASSISTANT_BASE_URL}/ui/assistants${query ? `?${query}` : ''}`;
-    const response = await httpClient.get<PaginatedResponse<AssistantDto>>(url);
+    const response = await httpClient.get(url) as any as PaginatedResponse<AssistantDto>;
     return {
       data: adaptAssistantList(response.data),
       has_more: response.has_more,
@@ -24,19 +24,19 @@ export const assistantService = {
 
   async get(assistantId: string): Promise<AssistantVM> {
     const url = `${ASSISTANT_BASE_URL}/ui/assistants/${assistantId}`;
-    const response = await httpClient.get<{ data: AssistantDto }>(url);
+    const response = await httpClient.get(url) as any as { data: AssistantDto };
     return adaptAssistant(response.data);
   },
 
   async create(params: AssistantCreateRequest): Promise<AssistantVM> {
     const url = `${ASSISTANT_BASE_URL}/assistants`;
-    const response = await httpClient.post<{ data: AssistantDto }>(url, params);
+    const response = await httpClient.post(url, params) as any as { data: AssistantDto };
     return adaptAssistant(response.data);
   },
 
   async update(assistantId: string, params: AssistantUpdateRequest): Promise<AssistantVM> {
     const url = `${ASSISTANT_BASE_URL}/assistants/${assistantId}`;
-    const response = await httpClient.post<{ data: AssistantDto }>(url, params);
+    const response = await httpClient.post(url, params) as any as { data: AssistantDto };
     return adaptAssistant(response.data);
   },
 

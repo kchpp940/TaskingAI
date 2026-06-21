@@ -7,7 +7,7 @@ import {
   MessageGenerationLogDto,
   MessageGenerationLogVM,
 } from '../viewmodels';
-import { formatDateTime, safeNumber, safeString, withTableKey } from './utils';
+import { formatDateTime, safeString } from './utils';
 
 const ROLE_LABELS: Record<MessageRole, string> = {
   user: 'User',
@@ -39,16 +39,11 @@ const formatEventLabel = (event: string): string => {
 
 export const adaptChat = (dto: ChatDto): ChatVM => {
   return {
-    id: dto.chat_id,
+    ...dto,
     key: dto.chat_id,
-    chatId: dto.chat_id,
-    assistantId: dto.assistant_id,
-    name: dto.name,
     displayName: safeString(dto.name, 'New Chat'),
     createdAt: formatDateTime(dto.created_timestamp),
     updatedAt: formatDateTime(dto.updated_timestamp),
-    createdTimestamp: dto.created_timestamp,
-    updatedTimestamp: dto.updated_timestamp,
   };
 };
 
@@ -56,22 +51,15 @@ export const adaptChatList = (dtos: ChatDto[]): ChatVM[] => {
   return dtos.map(adaptChat);
 };
 
-export const adaptChatForList = (vm: ChatVM): ChatVM & { key: string } => withTableKey(vm);
+export const adaptChatForList = (vm: ChatVM): ChatVM => vm;
 
 export const adaptMessage = (dto: MessageDto): MessageVM => {
   return {
-    id: dto.message_id,
-    messageId: dto.message_id,
-    chatId: dto.chat_id,
-    assistantId: dto.assistant_id,
-    role: dto.role,
+    ...dto,
     roleLabel: getRoleLabel(dto.role),
     isUser: dto.role === 'user',
     isAssistant: dto.role === 'assistant',
-    content: safeString(dto.content?.text),
-    numTokens: safeNumber(dto.num_tokens, 0),
     createdAt: formatDateTime(dto.created_timestamp),
-    createdTimestamp: dto.created_timestamp,
   };
 };
 

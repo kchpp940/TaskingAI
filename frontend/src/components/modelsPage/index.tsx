@@ -1,8 +1,9 @@
 import { useEffect, useState, useRef, ChangeEvent } from 'react'
 import { Modal, Button, Spin, Space, Input, Form, Drawer, Tooltip, ConfigProvider, Select, InputNumber, Switch, Popover } from 'antd'
 import styles from './modelsPage.module.scss'
-import { getModelsList, updateModels, deleteModels, getModelsForm, getAiModelsForm, getAiModelsList, getModelSchema } from '@/axios/models'
+import { modelService, authService, handleApiError } from '@/api'
 import tooltipTitle from '../../contents/tooltipTitle'
+import { ChildRefType, formDataType } from '../../constant/index.ts'
 import { useSelector, useDispatch } from 'react-redux';
 import { fetchModelsData } from '../../Redux/actions';
 import JumpIcon from '../../assets/img/assistantJumpIcon.svg?react'
@@ -10,7 +11,6 @@ import { setPlaygroundSelect } from '@/Redux/actions/playground.ts'
 import EditIcon from '../../assets/img/editIcon.svg?react'
 import MoreIcon from '@/assets/img/moreIcon.svg?react'
 import ViewCode from '@/commonComponent/viewCode/index.tsx'
-import { getViewCode } from '@/axios/index'
 import CommonComponents from '../../contents/index.tsx'
 import ModalTable from '@/components/modalTable';
 import ModelModal from '@/components/modelModal';
@@ -20,7 +20,7 @@ import { useNavigate } from 'react-router-dom'
 import { useTranslation } from "react-i18next";
 import IconComponent from '@/commonComponent/iconComponent';
 import { setLoading } from '../../Redux/actions.ts'
-import ApiErrorResponse, { RecordType, ChildRefType, formDataType } from '../../constant/index.ts'
+
 function ModelsPage() {
     const { modelLists, loading } = useSelector((state: any) => state.model);
     const dispatch = useDispatch()
@@ -44,7 +44,7 @@ function ModelsPage() {
         required: []
     })
     const [resetButtonShow, setResetButtonShow] = useState(true)
-    const [record, setRecord] = useState<RecordType>({
+    const [record, setRecord] = useState<any>({
         name: '',
         model_id: '',
         model_schema_id: '',
@@ -79,27 +79,21 @@ function ModelsPage() {
     const content = (
         <div style={{ cursor: 'pointer' }}>
             <p className={styles['popover-eidt']} onClick={handleViewCode}>View code</p>
-            <p className={styles['popover-delete']} onClick={() => handleDelete(record as RecordType)}>Delete</p>
+            <p className={styles['popover-delete']} onClick={() => handleDelete(record)}>Delete</p>
         </div>
     );
     useEffect(() => {
         const fetchCodeData = async () => {
-            const res = await getViewCode('model')
+            const res = await authService.getViewCode('model')
             setViewCodeData(res.data)
         }
         fetchCodeData()
     }, [])
     const fetchData = async (params: Record<string, any>) => {
         try {
-            const res: any = await getModelsList(params)
-            const data = res.data.map((item: RecordType) => {
-                return {
-                    ...item,
-                    key: item.model_id,
-                }
-            })
-            setHasMore(res.has_more)
-            setModelList(data)
+            const result = await modelService.list(params)
+            setModelList(result.data)
+            setHasMore(result.has_more)
         } catch (e) {
             console.log(e)
         }
@@ -107,7 +101,7 @@ function ModelsPage() {
     useEffect(() => {
         dispatch(setLoading(true));
         if (modelLists.data.length > 0) {
-            const data = modelLists.data.map((item: RecordType) => {
+            const data = modelLists.data.map((item: any) => {
                 return {
                     ...item,
                     key: item.model_id,
@@ -129,9 +123,9 @@ function ModelsPage() {
             key: 'action',
             width: 157,
             fixed: 'right',
-            render: (_: string, record: RecordType) => (
+            render: (_: string, record: any) => (
                 <Space size="middle">
-                    <div onClick={record.type !== 'chat_completion' ? undefined : () => handleJump(record as RecordType)} className={`table-edit-icon ${record.type !== 'chat_completion' && styles.typeDisabled} `}>
+                    <div onClick={record.type !== 'chat_completion' ? undefined : () => handleJump(record)} className={`table-edit-icon ${record.type !== 'chat_completion' && styles.typeDisabled} `}>
                         <Tooltip placement='bottom' title={record.type === 'chat_completion' && tooltipPlaygroundTitle} color='#fff' arrow={false} overlayClassName='table-tooltip'>
                             <JumpIcon />
                         </Tooltip>
@@ -162,7 +156,7 @@ function ModelsPage() {
         setUpdatePrevButton(true)
 
     }
-    const handleDelete = (record: RecordType) => {
+    const handleDelete = (record: any) => {
         setIsVisible(false)
         setOpenDeleteModal(true)
         setDeleteValue('')
@@ -171,14 +165,14 @@ function ModelsPage() {
 
     }
  
-    const handleJump = async (value: RecordType) => {
+    const handleJump = async (value: any) => {
         dispatch(setLoading(true));
         localStorage.setItem('modelSchemaId', value.model_schema_id)
         localStorage.setItem('providerId', value.provider_id)
-        const res = await getModelSchema(value.model_schema_id)
-        localStorage.setItem('allowedConfigs', JSON.stringify(res.data.allowed_configs))
-        const res1 = await getModelsForm(value.model_id)
-        localStorage.setItem('streaming', JSON.stringify(res1.data.properties.streaming))
+        const schemaRes = await modelService.getModelSchema(value.model_schema_id)
+        localStorage.setItem('allowedConfigs', JSON.stringify(schemaRes.allowed_configs))
+        const modelRes = await modelService.get(value.model_id)
+        localStorage.setItem('streaming', JSON.stringify(modelRes.properties?.streaming))
         dispatch(setLoading(false));
         dispatch(setPlaygroundSelect('chat_completion'))
         navigate(`/project/playground?model_id=${value.model_id}&model_name=${value.name}`)
@@ -193,12 +187,8 @@ function ModelsPage() {
     }
     const handleDeleteConfirm = async () => {
         setDeleteLoading(true)
-        const params = {
-            model_id: record.model_id
-        }
-
         const limit1: number = limit || 20
-        await deleteModels(params.model_id as string)
+        await modelService.delete(record.model_id)
         dispatch(fetchModelsData(limit1) as any);
         setDeleteLoading(false)
         setUpdatePrevButton(true)
@@ -213,12 +203,12 @@ function ModelsPage() {
         setDrawerEditOpen(false);
         setIsVisible(true)
     };
-    const handleEdit = async (record: RecordType) => {
+    const handleEdit = async (record: any) => {
         setIsVisible(false)
         setDrawerEditOpen(true)
 
         setEditLoading(true)
-        const res = await getAiModelsList(0, 100, record.provider_id)
+        const res = await modelService.listModelSchemas(0, 100, record.provider_id)
         const item = res.data.find((item: any) => {
             return item.model_schema_id === record.model_schema_id
         }).type
@@ -259,14 +249,12 @@ function ModelsPage() {
     }
     const fetchEditFormData = async (model_id: string, provider_id: string) => {
         try {
-            const res = await getModelsForm(model_id)
-            const res1 = await getAiModelsForm(provider_id)
-            setFormData(res1.data.credentials_schema)
-            form.setFieldsValue(res.data.display_credentials)
+            const res = await modelService.get(model_id)
+            const res1 = await modelService.getProviderForm(provider_id)
+            setFormData(res1.credentials_schema)
+            form.setFieldsValue(res.displayCredentials)
         } catch (e) {
-            const error = e as ApiErrorResponse
-            const errorMessage = error.response.data.error.message
-            toast.error(errorMessage)
+            handleApiError(e)
         }
 
     }
@@ -330,16 +318,14 @@ function ModelsPage() {
                 }
                 try {
                     setConfirmLoading(true)
-                    await updateModels(modelId, modelType === 'wildcard' ? wildcardParams : params)
+                    await modelService.update(modelId, modelType === 'wildcard' ? wildcardParams : params)
                     toast.success(`${t('updateSuccessful')}`)
                     setDrawerEditOpen(false)
                 
                     const limit1 = limit || 20
                     dispatch(fetchModelsData(limit1) as any);
                 } catch (error) {
-                    const errorType = error as ApiErrorResponse;
-                    const errorMessage: string = errorType.response.data.error.message;
-                    toast.error(errorMessage)
+                    handleApiError(error)
                 } finally {
                     setIsVisible(true)
                 }

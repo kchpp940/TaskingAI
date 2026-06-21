@@ -54,50 +54,25 @@ export interface ProviderDto {
   updated_timestamp: number;
 }
 
-export interface ModelVM {
-  id: string;
+export type ModelVM = ModelDto & {
   key: string;
-  modelId: string;
-  modelSchemaId: string;
-  providerId: string;
-  providerModelId: string;
-  name: string;
-  type: ModelType;
   typeLabel: string;
   isChatCompletion: boolean;
   isTextEmbedding: boolean;
   isRerank: boolean;
   isWildcard: boolean;
-  properties: ModelProperties;
   supportsFunctionCall: boolean;
   supportsStreaming: boolean;
-  configs: Record<string, any>;
   displayCredentials: Record<string, any>;
   createdAt: string;
   updatedAt: string;
-  createdTimestamp: number;
-  updatedTimestamp: number;
-}
+};
 
-export interface ModelSchemaVM {
-  id: string;
-  modelSchemaId: string;
-  name: string;
-  description: string;
-  providerId: string;
-  providerModelId?: string;
-  type: ModelType;
+export type ModelSchemaVM = ModelSchemaDto & {
   typeLabel: string;
-  properties: ModelProperties;
-  allowedConfigs: string[];
-  configSchemas: any[];
-}
+};
 
-export interface ProviderVM {
-  id: string;
-  providerId: string;
-  name: string;
-  description: string;
+export type ProviderVM = ProviderDto & {
   credentialsSchema: {
     properties: Record<string, { type: string; description: string; secret?: boolean }>;
     required: string[];
@@ -105,7 +80,7 @@ export interface ProviderVM {
   iconUrl: string;
   numModelSchemas: number;
   modelTypes: string[];
-}
+};
 
 export interface ModelCreateRequest {
   name: string;

@@ -1,4 +1,4 @@
-import { httpClient, API_BASE_URL, PaginatedResponse } from '../client';
+import { httpClient, API_BASE_URL } from '../client';
 
 const AUTH_BASE_URL = `${API_BASE_URL}`;
 
@@ -21,13 +21,13 @@ export interface VerifyTokenResponse {
 export const authService = {
   async login(params: LoginParams): Promise<LoginResponse> {
     const url = `${AUTH_BASE_URL}/admins/login`;
-    const response = await httpClient.post<LoginResponse>(url, params);
+    const response = await httpClient.post(url, params) as any as LoginResponse;
     return response;
   },
 
   async verifyToken(): Promise<VerifyTokenResponse> {
     const url = `${AUTH_BASE_URL}/admins/verify_token`;
-    const response = await httpClient.post<VerifyTokenResponse>(url);
+    const response = await httpClient.post(url) as any as VerifyTokenResponse;
     return response;
   },
 
@@ -38,13 +38,13 @@ export const authService = {
 
   async getViewCode(module: string): Promise<{ data: string }> {
     const url = `${AUTH_BASE_URL}/ui/template_codes/get_code?module=${module}`;
-    const response = await httpClient.get<{ data: string }>(url);
+    const response = await httpClient.get(url) as any as { data: string };
     return response;
   },
 
   async chatCompletion(params: any): Promise<any> {
     const url = `${AUTH_BASE_URL}/inference/chat_completion`;
-    const response = await httpClient.post(url, params);
+    const response = await httpClient.post(url, params) as any as any;
     return response;
   },
 };

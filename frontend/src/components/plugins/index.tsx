@@ -8,7 +8,7 @@ import styles from './plugins.module.scss'
 import { useState, useEffect,useRef } from 'react';
 import ClipboardJS from 'clipboard';
 import { toast } from 'react-toastify';
-import { deletePlugin, bundleList, getPluginList, editPlugin } from '@/axios/plugin.ts'
+import { pluginService, handleApiError, BundleInstanceVM } from '@/api'
 import closeIcon from '../../assets/img/x-close.svg'
 import DeleteModal from '../deleteModal/index.tsx'
 import ModalTable from '../modalTable/index'
@@ -19,7 +19,7 @@ import DeleteIcon from '../../assets/img/deleteIcon.svg?react'
 import ToolsNew from '../../assets/img/tools.svg?react'
 import tooltipTitle from '../../contents/tooltipTitle.tsx'
 import CommonComponents from '../../contents/index.tsx'
-import ApiErrorResponse from '@/constant/index'
+
 import { useTranslation } from "react-i18next";
 
 function Plugins() {
@@ -31,7 +31,7 @@ function Plugins() {
     const { tooltipEditTitle, tooltipDeleteTitle,tooltipPluginTitle } = tooltipTitle();
     const [loading, setLoading] = useState(false);
     const [form] = Form.useForm()
-    const [pluginFunList, setPluginFunList] = useState([])
+    const [pluginFunList, setPluginFunList] = useState<BundleInstanceVM[]>([])
     const [deleteValue, setDeleteValue] = useState('')
     const [updatePrevButton, setUpdatePrevButton] = useState(false)
     const [OpenDeleteModal, setOpenDeleteModal] = useState(false)
@@ -79,15 +79,9 @@ function Plugins() {
     const fetchData = async (params: any) => {
         setLoading(true);
         try {
-            const res: any = await getPluginList(params)
-            const data = res.data.map((item: any) => {
-                return {
-                    ...item,
-                }
-            })
-
-            setPluginFunList(data)
-            setHasMore(res.has_more)
+            const result = await pluginService.listBundleInstances(params)
+            setPluginFunList(result.data)
+            setHasMore(result.has_more)
         } catch (error) {
             console.log(error)
         }
@@ -97,9 +91,9 @@ function Plugins() {
         setOpenDrawer(true)
     }
     const getBundleList = async (params: object) => {
-        const res: any = await bundleList(params)
+        const result = await pluginService.listBundles(params)
         const imagesData: any = {};
-        res.data.forEach((image: any) => {
+        result.data.forEach((image: any) => {
             fetch(image.icon_url)
                 .then(response => response.blob())
                 .then(blob => {
@@ -111,7 +105,7 @@ function Plugins() {
                     reader.readAsDataURL(blob);
                 });
         });
-        setBundlesList(res.data)
+        setBundlesList(result.data)
     }
     const columns = [...bundleTableColumn]
     columns.push({
@@ -126,8 +120,8 @@ function Plugins() {
                         <ToolsNew />
                     </Tooltip>
                 </div>
-                <div onClick={JSON.stringify(record.display_credentials) !== '{}' ? () => handleEdit(record) : undefined} className={`table-edit-icon ${JSON.stringify(record.display_credentials) === '{}' && styles.disabledButton}`}>
-                    {JSON.stringify(record.display_credentials) !== '{}' ? <Tooltip placement='bottom' title={tooltipEditTitle} color='#fff' arrow={false} overlayClassName='table-tooltip'>
+                <div onClick={record.hasCredentials ? () => handleEdit(record) : undefined} className={`table-edit-icon ${!record.hasCredentials && styles.disabledButton}`}>
+                    {record.hasCredentials ? <Tooltip placement='bottom' title={tooltipEditTitle} color='#fff' arrow={false} overlayClassName='table-tooltip'>
                         <EditIcon />
                     </Tooltip> : <EditIcon />}
                 </div>
@@ -169,8 +163,7 @@ function Plugins() {
             setBundleId(record.bundle_id)
             setIsShowBundle(false)
         } catch (e) {
-            const error = e as ApiErrorResponse
-            toast.error(error.response.data.error.message)
+            handleApiError(e)
         } finally {
             setLoading(false)
         }
@@ -204,7 +197,7 @@ function Plugins() {
     }
     const onDeleteConfirm = async () => {
         try {
-            await deletePlugin(bundleId)
+            await pluginService.deleteBundleInstance(bundleId)
             const limit1: number = limit || 20
             dispatch(fetchPluginData(limit1) as any);
             if(createPluginRef.current) {
@@ -358,12 +351,8 @@ function Plugins() {
         form.validateFields().then(async () => {
             try {
                 const credentials = form.getFieldsValue()
-                const params = {
-                    name: bundleName,
-                    credentials,
-                }
                 setConfirmLoading(true)
-                await editPlugin(bundleId, params)
+                await pluginService.updateBundleInstance(bundleId, { name: bundleName, credentials })
                 const limit1: number = limit || 20
                 dispatch(fetchPluginData(limit1) as any);
                 setUpdatePrevButton(true)
@@ -371,9 +360,7 @@ function Plugins() {
                 setOpenEditDrawer(false)
                 toast.success(t('updateSuccessful'))
             } catch (error) {
-                const apiError = error as ApiErrorResponse;
-                const errorMessage: string = apiError.response.data.error.message;
-                toast.error(errorMessage)
+                handleApiError(error)
             } finally {
                 setConfirmLoading(false)
 
